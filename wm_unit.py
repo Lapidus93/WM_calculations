@@ -60,7 +60,7 @@ class Unit:
         Power = (alive - cas * 3) * size_decrease
         округлить и вернуть как int
         """
-        power = (self.alive_df['power'].sum() - len(self.cas_df)) * self.size_decrease
+        power = (self.alive_df['power'].sum() - len(self.cas_df))/5 * self.size_decrease
         print(self.unit_id,power)
         
         target_distance = self.target_vals_to_koefs()
