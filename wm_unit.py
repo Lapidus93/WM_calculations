@@ -89,8 +89,22 @@ class Unit:
             casualties = 0
 
 
+        if defender_cover == 0:
+            cover_safer =1 
+        elif defender_cover == 1:
+            cover_safer =0.5 
+        elif defender_cover == 2:
+            cover_safer =0.3
+        elif defender_cover == 3:
+            cover_safer =0.3
+        elif defender_cover == 4:
+            cover_safer =0.3
 
-            
+        max_casualties = int(round(cover_safer * len(other_unit.alive_df),0))
+
+        if casualties > max_casualties:
+            print(other_unit.unit_id, ' вжат землю')
+            casualties = max_casualties+0
             
         return casualties
 
