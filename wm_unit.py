@@ -61,13 +61,38 @@ class Unit:
         size_decrease = get_size_decrease(self.size)
         
         cover_attack_bonus = self.last_parameters['cover_level']
-        cover_attack_bonus = pow(1.1,cover_attack_bonus)
+        cover_attack_bonus = pow(1.1,cover_attack_bonus+1)
 
         attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus
         print(self.unit_id,attack_power)
                 
                
         return int(round(attack_power,0))
+    
+    def calculate_cas_amount(self,attack_power,koef,other_unit):
+
+        target_distance = self.last_parameters['target_distance']
+        target_distance = pow(0.75,target_distance+1)
+
+
+        defender_cover = other_unit.last_parameters['cover_level']
+        enemy_cas = round(attack_power * koef * target_distance,0)
+
+        if enemy_cas < 3:
+            enemy_cas = 3
+        casualties = 0
+        for i in range(3):
+            casualties += random.randint(1,enemy_cas)
+        casualties = casualties - 3 - defender_cover*2
+
+        if casualties <0:
+            casualties = 0
+
+
+
+            
+            
+        return casualties
 
     
 
@@ -102,7 +127,44 @@ class Unit:
             else:
                 return "разгром","засада"
 
+        def calculate_koef(result):
+            koef = 1
+            if result == "засада":
+                koef = 0.03
+            elif result == "поражение":
+                koef = 0.03
+            elif result == "ничья":
+                koef = 0.06
+            elif result == "победа":
+                koef = 0.18
+            elif result == "разгром":
+                koef = 0.65
+            return koef
+        
 
+        def manage_kills(unit_df, kills):
+            for k in range(kills):
+                # выбрать случайную строку
+                rnd_index = unit_df.sample(n=1).index[0]
+                # увеличить счётчик убийств на 1
+                unit_df.loc[rnd_index, "kill_count"] += 1
+            
+        def manage_casualties(alive_df, cas_df, cas):
+            if cas > len(alive_df):
+                cas = len(alive_df)
+                    
+
+            # 1. случайный выбор cas строк
+            print(cas)
+            selected = alive_df.sample(n=cas, replace=False)
+            
+            # 2. добавляем их в cas_df
+            cas_df = pd.concat([cas_df, selected], ignore_index=True)
+            
+            # 3. удаляем выбранные строки из alive_df
+            alive_df = alive_df.drop(selected.index).reset_index(drop=True)
+                
+            return alive_df, cas_df
 
         for i in [self,other_unit]:
             i.check_unit_parameters()    
@@ -110,11 +172,31 @@ class Unit:
         team1_power = self.calculate_attack_power()
         team2_power = other_unit.calculate_attack_power()
 
+        result1,result2 = calculate_result(team1_power,team2_power)
 
+        cas_koef1 = calculate_koef(result1)
+        cas_koef2 = calculate_koef(result2)
 
-        result1,result2 = calculate_result(team1_power,team1_power)
+        cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit)
+        cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self)
+
+        manage_kills(self.alive_df, cas1)
+        manage_kills(other_unit.alive_df, cas2)
+
 
         print(result1,result2)
+        print(cas_koef1,cas_koef2)
+        print(cas1,cas2)
+
+        alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, cas2)
+        self.alive_df = alive_df
+        self.cas_df = cas_df
+
+        alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+        other_unit.alive_df = alive_df
+        other_unit.cas_df = cas_df
+            
+
         
     
     
