@@ -76,11 +76,12 @@ class Unit:
 
 
         defender_cover = other_unit.last_parameters['cover_level']
-        enemy_cas = round(attack_power * koef * target_distance,0)
+        enemy_cas = int(round(attack_power * koef * target_distance,0))
 
         if enemy_cas < 3:
             enemy_cas = 3
         casualties = 0
+
         for i in range(3):
             casualties += random.randint(1,enemy_cas)
         casualties = casualties - 3 - defender_cover*2
@@ -194,25 +195,38 @@ class Unit:
         cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit)
         cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self)
 
-        manage_kills(self.alive_df, cas1)
-        manage_kills(other_unit.alive_df, cas2)
+        print(str(other_unit.last_parameters['enemy_unit_id']))
+        print(str(self.unit_id))
 
+        print(str(other_unit.last_parameters['enemy_unit_id']) == str(self.unit_id))
 
-        print(result1,result2)
-        print(cas_koef1,cas_koef2)
-        print(cas1,cas2)
+        if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
+            print('атака без ответа')
+            manage_kills(self.alive_df, cas1)
+            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
+            print(result1)
+            print(cas_koef1,cas_koef2)
+            print(cas1)
+        
+        else:
+            manage_kills(self.alive_df, cas1)
+            manage_kills(other_unit.alive_df, cas2)
 
-        alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, cas2)
-        self.alive_df = alive_df
-        self.cas_df = cas_df
+            alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, cas2)
+            self.alive_df = alive_df
+            self.cas_df = cas_df
 
-        alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
-        other_unit.alive_df = alive_df
-        other_unit.cas_df = cas_df
+            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
             
 
+            print(result1)
+            print(cas_koef1,cas_koef2)
+            print(cas1,cas2)
         
-    
     
     def __repr__(self):
         return (f"Unit(unit_id={self.unit_id}, size={self.size}, alive_df={len(self.alive_df)}, "
