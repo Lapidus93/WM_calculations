@@ -9,7 +9,7 @@ import wm_unit as wmu
 import pandas as pd
 
 class Unit:
-    def __init__(self, unit_id: str, size: str,
+    def __init__(self, unit_id: str, size = str,
                  alive_df=None, cas_df=None, last_parameters: Optional[dict] = None):
 
         self.unit_id = unit_id
@@ -17,6 +17,16 @@ class Unit:
 
         # alive и cas — DataFrame
         self.alive_df = alive_df
+
+        if 0 < len(self.alive_df) <= 12:
+            self.size = 'SQ'
+        elif 13 < len(self.alive_df) <= 40:
+            self.size = 'PT'
+        elif len(self.alive_df) > 40:
+            self.size = 'CM'
+
+
+
         self.cas_df = cas_df
 
         self.last_parameters = last_parameters or {
