@@ -34,6 +34,7 @@ class Unit:
             'cover_level': 0,
             'target_distance': 0,
             'enemy_unit_id': 'id1',
+            'berserk_mode': 0,
         }
 
 
@@ -68,25 +69,42 @@ class Unit:
             elif size == 'SQ':
                 size_decrease = 0.9
             return size_decrease      
+
         size_decrease = get_size_decrease(self.size)
         
+        berserk_mode = self.last_parameters['berserk_mode']
+        if berserk_mode == '1':
+            berserk_mode = 1.5
+        else:
+            berserk_mode = 1
+
         cover_attack_bonus = self.last_parameters['cover_level']
         cover_attack_bonus = pow(1.1,cover_attack_bonus+1)
 
-        attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus
-        print(self.unit_id,attack_power)
+        attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus * berserk_mode
                 
                
         return int(round(attack_power,0))
     
-    def calculate_cas_amount(self,attack_power,koef,other_unit):
+    def calculate_cas_amount(self,attack_power,koef,other_unit,result):
 
         target_distance = self.last_parameters['target_distance']
         target_distance = pow(0.75,target_distance+1)
 
-
         defender_cover = other_unit.last_parameters['cover_level']
+
         enemy_cas = int(round(attack_power * koef * target_distance,0))
+
+        if result in ['засада','поражение'] and str(other_unit.last_parameters['berserk_mode']) == '1':
+            chence = random.randint(1,3)
+            if chence == 1:
+                berserk_koef = 1
+            elif chence == 2:
+                berserk_koef = 1.5
+            elif chence == 3:
+                berserk_koef = 2
+            enemy_cas = int(round(attack_power * koef * target_distance * berserk_koef,0))
+
 
         if enemy_cas < 3:
             enemy_cas = 3
@@ -180,7 +198,6 @@ class Unit:
                     
 
             # 1. случайный выбор cas строк
-            print(cas)
             selected = alive_df.sample(n=cas, replace=False)
             
             # 2. добавляем их в cas_df
@@ -202,13 +219,8 @@ class Unit:
         cas_koef1 = calculate_koef(result1)
         cas_koef2 = calculate_koef(result2)
 
-        cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit)
-        cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self)
-
-        print(str(other_unit.last_parameters['enemy_unit_id']))
-        print(str(self.unit_id))
-
-        print(str(other_unit.last_parameters['enemy_unit_id']) == str(self.unit_id))
+        cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit,result2)
+        cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self,result1)
 
         if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
             print('атака без ответа')
