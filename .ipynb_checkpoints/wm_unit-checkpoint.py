@@ -81,10 +81,7 @@ class Unit:
         cover_attack_bonus = self.last_parameters['cover_level']
         cover_attack_bonus = pow(1.1,cover_attack_bonus+1)
 
-        elevation_bonus = self.last_parameters['elev_pos']
-        elevation_bonus = pow(1.4,cover_attack_bonus+1)
-
-        attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus * berserk_mode  * elevation_bonus
+        attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus * berserk_mode
                 
                
         return int(round(attack_power,0))
@@ -96,17 +93,7 @@ class Unit:
 
         defender_cover = other_unit.last_parameters['cover_level']
 
-        elevation_bonus = self.last_parameters['elev_pos'] - other_unit.last_parameters['elev_pos']
-        elevation_bonus = pow(1.4,elevation_bonus)
-
-        enemy_cas = attack_power * koef * target_distance
-
-
-        print(self.unit_id,'before elev',enemy_cas)
-
-        if self.last_parameters['target_distance'] in [0,1,2]:
-            enemy_cas = enemy_cas * elevation_bonus
-            print(self.unit_id,'after_elev',enemy_cas)
+        enemy_cas = int(round(attack_power * koef * target_distance,0))
 
         if result in ['засада','поражение'] and str(other_unit.last_parameters['berserk_mode']) == '1':
             chence = random.randint(1,3)
@@ -116,14 +103,12 @@ class Unit:
                 berserk_koef = 1.5
             elif chence == 3:
                 berserk_koef = 2
-            enemy_cas = enemy_cas * berserk_koef
+            enemy_cas = int(round(attack_power * koef * target_distance * berserk_koef,0))
 
 
         if enemy_cas < 3:
             enemy_cas = 3
         casualties = 0
-
-        enemy_cas = int(round(enemy_cas,0))
 
         for i in range(3):
             casualties += random.randint(1,enemy_cas)
