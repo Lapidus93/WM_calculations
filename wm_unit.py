@@ -24,6 +24,11 @@ class Unit:
             self.size = 'PT'
         elif len(self.alive_df) > 40:
             self.size = 'CM'
+        
+        if 'type' in self.alive_df.columns:
+            self.size = 'ARMOR'
+
+
 
 
 
@@ -99,14 +104,7 @@ class Unit:
         elevation_bonus = self.last_parameters['elev_pos'] - other_unit.last_parameters['elev_pos']
         elevation_bonus = pow(1.4,elevation_bonus)
 
-        enemy_cas = attack_power * koef * target_distance
-
-
-        print(self.unit_id,'before elev',enemy_cas)
-
-        if self.last_parameters['target_distance'] in [0,1,2]:
-            enemy_cas = enemy_cas * elevation_bonus
-            print(self.unit_id,'after_elev',enemy_cas)
+        enemy_cas = attack_power * koef * target_distance * elevation_bonus
 
         if result in ['засада','поражение'] and str(other_unit.last_parameters['berserk_mode']) == '1':
             chence = random.randint(1,3)
@@ -235,7 +233,7 @@ class Unit:
         cas_koef2 = calculate_koef(result2)
 
         cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit,result2)
-        cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self,result1)
+
 
         if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
             print('атака без ответа')
@@ -248,6 +246,8 @@ class Unit:
             print(cas1)
         
         else:
+            cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self,result1)    
+        
             manage_kills(self.alive_df, cas1)
             manage_kills(other_unit.alive_df, cas2)
 
