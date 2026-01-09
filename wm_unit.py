@@ -60,7 +60,10 @@ class Unit:
             if x == '':
                 pass
             else:
-                self.last_parameters[key] = int(x)
+                try:
+                    self.last_parameters[key] = int(x)
+                except:
+                    self.last_parameters[key] = str(x)
 
     
     def calculate_attack_power(self):
