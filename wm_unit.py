@@ -159,7 +159,7 @@ class Unit:
 
 
 
-    def attack_unit(self, other_unit: "Unit"):
+    def attack_unit(self, other_unit: "Unit",logs,current_time):
         def calculate_result(team1,team2):
                 # --- t1: сумма 2 кубиков d24 ---
             if team1 <2:
@@ -223,6 +223,10 @@ class Unit:
             alive_df = alive_df.drop(selected.index).reset_index(drop=True)
                 
             return alive_df, cas_df
+        
+        log_our_force = len(self.alive_df)
+        log_enemy_force = len(other_unit.alive_df)
+
 
         for i in [self,other_unit]:
             i.check_unit_parameters()    
@@ -247,6 +251,8 @@ class Unit:
             print(result1)
             print(cas_koef1,cas_koef2)
             print(cas1)
+
+            cas2 = 0
         
         else:
             cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self,result1)    
@@ -266,6 +272,23 @@ class Unit:
             print(result1)
             print(cas_koef1,cas_koef2)
             print(cas1,cas2)
+
+
+        new_log = [current_time,
+                   self.unit_id,
+                   self.size,
+                   log_our_force,
+                   cas2,
+                   other_unit.unit_id,
+                   other_unit.size,
+                   log_enemy_force,
+                   cas1,result1]
+        new_log = pd.DataFrame([new_log],columns=['time','our_unit','our_unit_size','our_unit_alive_force','our_cas',
+                                                  'enemy_unit','enemy_unit_size','enemy_unit_alive_force','enemy_cas','result'])
+        
+        logs = pd.concat([logs,new_log])
+
+        return logs
         
     
     def __repr__(self):
