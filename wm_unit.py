@@ -10,10 +10,11 @@ import pandas as pd
 
 class Unit:
     def __init__(self, unit_id: str, size = str,
-                 alive_df=None, cas_df=None, last_parameters: Optional[dict] = None):
+                 alive_df=None, cas_df=None, last_parameters: Optional[dict] = None,side=str):
 
         self.unit_id = unit_id
         self.size = size
+        self.side = side
 
         # alive и cas — DataFrame
         self.alive_df = alive_df
@@ -275,6 +276,7 @@ class Unit:
 
 
         new_log = [current_time,
+                   self.side,
                    self.unit_id,
                    self.size,
                    log_our_force,
@@ -283,8 +285,8 @@ class Unit:
                    other_unit.size,
                    log_enemy_force,
                    cas1,result1]
-        new_log = pd.DataFrame([new_log],columns=['time','our_unit','our_unit_size','our_unit_alive_force','our_cas',
-                                                  'enemy_unit','enemy_unit_size','enemy_unit_alive_force','enemy_cas','result'])
+        new_log = pd.DataFrame([new_log],columns=['time','attack_unit_side','attack_unit','attack_unit_size','attack_unit_alive_force','attack_cas',
+                                                  'defend_unit','defend_unit_size','defend_unit_alive_force','defend_cas','result'])
         
         logs = pd.concat([logs,new_log])
 
