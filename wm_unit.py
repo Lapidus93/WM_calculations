@@ -66,10 +66,8 @@ class Unit:
                 except:
                     self.last_parameters[key] = str(x)
 
-    
-    def calculate_attack_power(self):
-
-        def get_size_decrease(size):
+    def get_size_decrease(self):
+            size = str(self.size)
             size_decrease = 1
             if size == 'CM':
                 size_decrease = 0.6
@@ -77,9 +75,12 @@ class Unit:
                 size_decrease = 0.8
             elif size == 'SQ':
                 size_decrease = 0.9
-            return size_decrease      
+            return size_decrease    
+    
+    def calculate_attack_power(self):
+  
 
-        size_decrease = get_size_decrease(self.size)
+        size_decrease = self.get_size_decrease()
         
         berserk_mode = self.last_parameters['berserk_mode']
         if berserk_mode == '1':
@@ -134,6 +135,86 @@ class Unit:
         if casualties <0:
             casualties = 0
 
+
+        if defender_cover == 0:
+            cover_safer =1 
+        elif defender_cover == 1:
+            cover_safer =0.5 
+        elif defender_cover == 2:
+            cover_safer =0.3
+        elif defender_cover == 3:
+            cover_safer =0.3
+        elif defender_cover == 4:
+            cover_safer =0.3
+
+        max_casualties = int(round(cover_safer * len(other_unit.alive_df),0))
+
+        if casualties > max_casualties:
+            print(other_unit.unit_id, ' вжат землю')
+            casualties = max_casualties+0
+            
+        return casualties
+
+    def calculate_side_attack_cas_amount(self,other_unit):
+
+        distance_decrease = 1 
+        if self.last_parameters['target_distance'] == 0:
+            distance_decrease = 0.7
+        elif self.last_parameters['target_distance'] == 1:
+            distance_decrease = 0.5
+        elif self.last_parameters['target_distance'] == 2:
+            distance_decrease = 0.3
+        elif self.last_parameters['target_distance'] == 3:
+            distance_decrease = 0.2
+        elif self.last_parameters['target_distance'] == 4:
+            distance_decrease = 0.1
+
+        size_decrease = self.get_size_decrease()
+
+        attack_power = int(round(len(self.alive_df) * size_decrease * distance_decrease, 0))
+
+        size_bonus = 4
+        if 0 < len(other_unit.alive_df) <= 12:
+            size_bonus = 8
+        elif 13 < len(other_unit.alive_df) <= 60:
+            size_bonus = 6
+            
+        cover_bonus = 4
+        if other_unit.last_parameters['cover_level'] == 1:
+            cover_bonus = 6
+        elif other_unit.last_parameters['cover_level'] == 2:
+            cover_bonus = 8
+        elif other_unit.last_parameters['cover_level'] == 3:
+            cover_bonus = 10
+        elif other_unit.last_parameters['cover_level'] == 4:
+            cover_bonus = 12
+                        
+            
+        defence_power = cover_bonus*size_bonus
+
+        print(attack_power,defence_power)
+
+        attack = 0
+        defence = 0
+
+        for i in range(3):
+            attack += random.randint(1, attack_power)
+        attack = attack - 3 
+
+        for i in range(3):
+            defence += random.randint(1, defence_power)
+        defence = defence - 3 
+
+        casualties = attack - defence
+
+        print(attack,defence)
+        print(casualties)
+
+        if casualties <0:
+            casualties = 0
+
+
+        defender_cover = other_unit.last_parameters['cover_level']
 
         if defender_cover == 0:
             cover_safer =1 
@@ -245,12 +326,13 @@ class Unit:
 
         if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
             print('атака без ответа')
+
+            cas1 = self.calculate_side_attack_cas_amount(other_unit)
+
             manage_kills(self.alive_df, cas1)
             alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
             other_unit.alive_df = alive_df
             other_unit.cas_df = cas_df
-            print(result1)
-            print(cas_koef1,cas_koef2)
             print(cas1)
 
             cas2 = 0
