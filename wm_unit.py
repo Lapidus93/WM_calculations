@@ -161,36 +161,38 @@ class Unit:
         if self.last_parameters['target_distance'] == 0:
             distance_decrease = 0.7
         elif self.last_parameters['target_distance'] == 1:
-            distance_decrease = 0.5
+            distance_decrease = 0.6
         elif self.last_parameters['target_distance'] == 2:
-            distance_decrease = 0.3
+            distance_decrease = 0.5
         elif self.last_parameters['target_distance'] == 3:
-            distance_decrease = 0.2
+            distance_decrease = 0.4
         elif self.last_parameters['target_distance'] == 4:
-            distance_decrease = 0.1
+            distance_decrease = 0.3
 
         size_decrease = self.get_size_decrease()
 
-        attack_power = int(round(len(self.alive_df) * size_decrease * distance_decrease, 0))
+        koef_decrease = 3
 
-        size_bonus = 4
+        attack_power = int(round(len(self.alive_df) * size_decrease * distance_decrease/koef_decrease, 0))
+
+        size_bonus = 5
         if 0 < len(other_unit.alive_df) <= 12:
-            size_bonus = 8
+            size_bonus = 7
         elif 13 < len(other_unit.alive_df) <= 60:
             size_bonus = 6
             
-        cover_bonus = 4
+        cover_bonus = 5
         if other_unit.last_parameters['cover_level'] == 1:
             cover_bonus = 6
         elif other_unit.last_parameters['cover_level'] == 2:
-            cover_bonus = 8
+            cover_bonus = 7
         elif other_unit.last_parameters['cover_level'] == 3:
-            cover_bonus = 10
+            cover_bonus = 8
         elif other_unit.last_parameters['cover_level'] == 4:
-            cover_bonus = 12
+            cover_bonus = 9
                         
             
-        defence_power = cover_bonus*size_bonus
+        defence_power = int(round(cover_bonus*size_bonus/koef_decrease,0))
 
         print(attack_power,defence_power)
 
