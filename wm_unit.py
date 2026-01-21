@@ -156,61 +156,35 @@ class Unit:
         return casualties
 
     def calculate_side_attack_cas_amount(self,other_unit):
+        def calculate_side_attack_power(attack_power, distance, cover):
+            import math
+            result = (
+                5
+                * math.sqrt(attack_power)
+                * (0.72 ** distance)
+                * (0.75 ** cover)
+            )
+            return int(round(result))
 
-        distance_decrease = 1 
-        if self.last_parameters['target_distance'] == 0:
-            distance_decrease = 0.7
-        elif self.last_parameters['target_distance'] == 1:
-            distance_decrease = 0.6
-        elif self.last_parameters['target_distance'] == 2:
-            distance_decrease = 0.5
-        elif self.last_parameters['target_distance'] == 3:
-            distance_decrease = 0.4
-        elif self.last_parameters['target_distance'] == 4:
-            distance_decrease = 0.3
 
-        size_decrease = self.get_size_decrease()
-
-        koef_decrease = 3
-
-        attack_power = int(round(len(self.alive_df) * size_decrease * distance_decrease/koef_decrease, 0))
-
-        size_bonus = 5
-        if 0 < len(other_unit.alive_df) <= 12:
-            size_bonus = 7
-        elif 13 < len(other_unit.alive_df) <= 60:
-            size_bonus = 6
-            
-        cover_bonus = 5
-        if other_unit.last_parameters['cover_level'] == 1:
-            cover_bonus = 6
-        elif other_unit.last_parameters['cover_level'] == 2:
-            cover_bonus = 7
-        elif other_unit.last_parameters['cover_level'] == 3:
-            cover_bonus = 8
-        elif other_unit.last_parameters['cover_level'] == 4:
-            cover_bonus = 9
+        distance = self.last_parameters['target_distance']
+        attack_power = len(self.alive_df) 
+        cover =  other_unit.last_parameters['cover_level']
                         
-            
-        defence_power = int(round(cover_bonus*size_bonus/koef_decrease,0))
-
-        print(attack_power,defence_power)
+        final_power = calculate_side_attack_power(attack_power, distance, cover)
 
         attack = 0
         defence = 0
 
         for i in range(3):
-            attack += random.randint(1, attack_power)
+            attack += random.randint(1, final_power)
         attack = attack - 3 
 
         for i in range(3):
-            defence += random.randint(1, defence_power)
-        defence = defence - 3 
+            defence += random.randint(1, 10)
 
         casualties = attack - defence
 
-        print(attack,defence)
-        print(casualties)
 
         if casualties <0:
             casualties = 0
