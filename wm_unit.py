@@ -10,14 +10,19 @@ import pandas as pd
 
 class Unit:
     def __init__(self, unit_id: str, size = str,
-                 alive_df=None, cas_df=None, last_parameters: Optional[dict] = None,side=str):
+                 alive_df=None, cas_df=None,
+                 armor_part=None,
+                 last_parameters: Optional[dict] = None,side=str):
 
         self.unit_id = unit_id
         self.size = size
         self.side = side
+        self.armor_part = armor_part if armor_part is not None else []
+
 
         # alive и cas — DataFrame
         self.alive_df = alive_df
+
 
         if 0 < len(self.alive_df) <= 12:
             self.size = 'SQ'
@@ -352,6 +357,11 @@ class Unit:
         
     
     def __repr__(self):
+        armor_component = 0
+        if self.armor_part == []:
+            pass
+        else:
+            armor_component = len(self.armor_part.alive_df)
         return (f"Unit(unit_id={self.unit_id}, size={self.size}, alive_df={len(self.alive_df)}, "
-                        f"cas_df={len(self.cas_df)}, "
+                        f"cas_df={len(self.cas_df)}, " f"armor_part={armor_component}, "
                         f"last_parameters={self.last_parameters})")
