@@ -100,11 +100,15 @@ class Unit:
         elevation_bonus = pow(1.4,cover_attack_bonus+1)
 
         attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus * berserk_mode  * elevation_bonus
-                
+        
+        if self.armor_part != []:
+            attack_power += self.armor_part.alive_df['power'].sum()
                
         return int(round(attack_power,0))
     
-    def calculate_cas_amount(self,attack_power,koef,other_unit,result):
+    def calculate_cas_amount(self,koef,other_unit,result):
+        
+        attack_power = self.alive_df['power'].sum()
 
         target_distance = self.last_parameters['target_distance']
         target_distance = pow(0.75,target_distance+1)
@@ -173,7 +177,7 @@ class Unit:
 
 
         distance = self.last_parameters['target_distance']
-        attack_power = len(self.alive_df) 
+        attack_power = sum(self.alive_df['power']) 
         cover =  other_unit.last_parameters['cover_level']
                         
         final_power = calculate_side_attack_power(attack_power, distance, cover)
@@ -297,29 +301,55 @@ class Unit:
         team1_power = self.calculate_attack_power()
         team2_power = other_unit.calculate_attack_power()
 
+        print(team1_power,team2_power)
         result1,result2 = calculate_result(team1_power,team2_power)
 
         cas_koef1 = calculate_koef(result1)
         cas_koef2 = calculate_koef(result2)
-
-        cas1 = self.calculate_cas_amount(team1_power,cas_koef1,other_unit,result2)
-
+           
 
         if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
             print('атака без ответа')
 
-            cas1 = self.calculate_side_attack_cas_amount(other_unit)
+            if self.armor_part != []:
+               arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
 
+            manage_kills(self.armor_part.alive_df, arm_cas1)
+            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
+            
+            cas1 = self.calculate_side_attack_cas_amount(other_unit)
             manage_kills(self.alive_df, cas1)
             alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
             other_unit.alive_df = alive_df
             other_unit.cas_df = cas_df
-            print(cas1)
+            print(arm_cas1+cas1,arm_cas1,cas1)
 
-            cas2 = 0
+
         
         else:
-            cas2 = other_unit.calculate_cas_amount(team2_power,cas_koef2,self,result1)    
+            arm_cas1 = 0
+            arm_cas2 = 0
+            if self.armor_part != []:
+               arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
+               manage_kills(self.armor_part.alive_df, arm_cas1)
+            if other_unit.armor_part != []:
+               arm_cas2 = other_unit.armor_part.calculate_side_attack_cas_amount(self)
+               manage_kills(other_unit.armor_part.alive_df, arm_cas2)   
+ 
+            
+            alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, arm_cas2)
+            self.alive_df = alive_df
+            self.cas_df = cas_df
+
+            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
+            
+
+            cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
+            cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
         
             manage_kills(self.alive_df, cas1)
             manage_kills(other_unit.alive_df, cas2)
@@ -335,7 +365,8 @@ class Unit:
 
             print(result1)
             print(cas_koef1,cas_koef2)
-            print(cas1,cas2)
+            print('Потери',self.unit_id,arm_cas2+cas2,'(',arm_cas2,'+',cas2,')')
+            print('Потери',other_unit.unit_id,arm_cas1+cas1,'(',arm_cas1,'+',cas1,')')
 
 
         new_log = [current_time,
