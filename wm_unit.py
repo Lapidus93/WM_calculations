@@ -1,18 +1,22 @@
 ﻿import itertools
+import random
 from collections import Counter
-import matplotlib.pyplot as plt
-import random 
 from typing import Optional
-##### import random
-from collections import Counter
-import wm_unit as wmu
+
+import matplotlib.pyplot as plt
 import pandas as pd
 
 class Unit:
-    def __init__(self, unit_id: str, size = str,
-                 alive_df=None, cas_df=None,
-                 armor_part=None,
-                 last_parameters: Optional[dict] = None,side=str):
+    def __init__(
+        self,
+        unit_id: str,
+        size: str = "",
+        alive_df=None,
+        cas_df=None,
+        armor_part=None,
+        last_parameters: Optional[dict] = None,
+        side: str = "",
+    ):
 
         self.unit_id = unit_id
         self.size = size
@@ -47,6 +51,34 @@ class Unit:
             'enemy_unit_id': 'id1',
             'berserk_mode': 0,
         }
+
+    @staticmethod
+    def manage_casualties(alive_df: pd.DataFrame, cas_df: pd.DataFrame, cas: int):
+        """Move random casualties from alive_df to cas_df.
+
+        Notes:
+            - If cas is greater than the number of alive rows, it is clamped.
+            - Returns (new_alive_df, new_cas_df).
+        """
+        if cas <= 0 or len(alive_df) == 0:
+            return alive_df, cas_df
+
+        if cas > len(alive_df):
+            cas = len(alive_df)
+
+        selected = alive_df.sample(n=cas, replace=False)
+        cas_df = pd.concat([cas_df, selected], ignore_index=True)
+        alive_df = alive_df.drop(selected.index).reset_index(drop=True)
+        return alive_df, cas_df
+
+    @staticmethod
+    def manage_kills(unit_df: pd.DataFrame, kills: int, kill_type:str):
+        """Randomly increment 'kill_count' on unit_df for a given number of kills."""
+        if kills <= 0 or len(unit_df) == 0:
+            return
+        for _ in range(kills):
+            rnd_index = unit_df.sample(n=1).index[0]
+            unit_df.loc[rnd_index, "kill_type"] += 1
 
 
     def check_unit_parameters(self):
@@ -223,7 +255,46 @@ class Unit:
     
 
 
+    def armor_attack_check_and_result(self,armor_unit):
 
+        def rpg_shot(move,distance):
+            cas = 0
+            chance = 70
+    
+            if distance == '1':
+                chance = chance*0.5
+            if move == '1':
+                chance = chance*0.25
+            chance = int(round(chance,0))
+
+            shot_result = random.randint(1,100)
+            if shot_result <=chance:
+                cas+=1
+    
+            return cas
+
+
+        shots = 1
+        if self.size =='CM':
+            shots = 3
+    
+        move = input('Броня двигается?')
+        distance = input('Броня далеко?')
+
+        cas = 0
+    
+        for i in range(shots):
+            cas+= rpg_shot(move,distance)
+
+        if cas > len(armor_unit.alive_df):
+            cas = len(armor_unit.alive_df)
+        print('Подбита ',cas,' единиц техника')
+
+        alive_df, cas_df = self.manage_casualties(armor_unit.alive_df, armor_unit.cas_df, cas)
+        armor_unit.alive_df = alive_df
+        armor_unit.cas_df = cas_df
+
+        return armor_unit
 
 
     def attack_unit(self, other_unit: "Unit",logs,current_time):
@@ -268,121 +339,114 @@ class Unit:
             return koef
         
 
-        def manage_kills(unit_df, kills):
-            for k in range(kills):
-                # выбрать случайную строку
-                rnd_index = unit_df.sample(n=1).index[0]
-                # увеличить счётчик убийств на 1
-                unit_df.loc[rnd_index, "kill_count"] += 1
-            
-        def manage_casualties(alive_df, cas_df, cas):
-            if cas > len(alive_df):
-                cas = len(alive_df)
-                    
 
-            # 1. случайный выбор cas строк
-            selected = alive_df.sample(n=cas, replace=False)
-            
-            # 2. добавляем их в cas_df
-            cas_df = pd.concat([cas_df, selected], ignore_index=True)
-            
-            # 3. удаляем выбранные строки из alive_df
-            alive_df = alive_df.drop(selected.index).reset_index(drop=True)
-                
-            return alive_df, cas_df
-        
+        arm_cas1 = 0
+        arm_cas2 = 0
+
+        cas1 = 0
+        cas2 = 0
+
+    
         log_our_force = len(self.alive_df)
         log_enemy_force = len(other_unit.alive_df)
 
 
         for i in [self,other_unit]:
-            i.check_unit_parameters()    
-        
-        team1_power = self.calculate_attack_power()
-        team2_power = other_unit.calculate_attack_power()
+            i.check_unit_parameters()
 
-        print(team1_power,team2_power)
-        result1,result2 = calculate_result(team1_power,team2_power)
 
-        cas_koef1 = calculate_koef(result1)
-        cas_koef2 = calculate_koef(result2)
+        if other_unit.size == 'ARMOR':
+            other_unit = self.armor_attack_check_and_result(other_unit)
+            
+
+        else:
+            team1_power = self.calculate_attack_power()
+            team2_power = other_unit.calculate_attack_power()
+
+            print(team1_power,team2_power)
+            result1,result2 = calculate_result(team1_power,team2_power)
+
+            cas_koef1 = calculate_koef(result1)
+            cas_koef2 = calculate_koef(result2)
            
 
-        if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
-            print('атака без ответа')
+            if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
+                print('атака без ответа')
 
-            if self.armor_part != []:
-               arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
 
-            manage_kills(self.armor_part.alive_df, arm_cas1)
-            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
-            other_unit.alive_df = alive_df
-            other_unit.cas_df = cas_df
             
-            cas1 = self.calculate_side_attack_cas_amount(other_unit)
-            manage_kills(self.alive_df, cas1)
-            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
-            other_unit.alive_df = alive_df
-            other_unit.cas_df = cas_df
-            print(arm_cas1+cas1,arm_cas1,cas1)
+            
+                if self.armor_part != []:
+                    arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
+                    Unit.manage_kills(self.armor_part.alive_df, arm_cas1)
+
+                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
+                other_unit.alive_df = alive_df
+                other_unit.cas_df = cas_df
+            
+                cas1 = self.calculate_side_attack_cas_amount(other_unit)
+                Unit.manage_kills(self.alive_df, cas1)
+                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+                other_unit.alive_df = alive_df
+                other_unit.cas_df = cas_df
+                print(arm_cas1+cas1,arm_cas1,cas1)
 
 
         
-        else:
-            arm_cas1 = 0
-            arm_cas2 = 0
-            if self.armor_part != []:
-               arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
-               manage_kills(self.armor_part.alive_df, arm_cas1)
-            if other_unit.armor_part != []:
-               arm_cas2 = other_unit.armor_part.calculate_side_attack_cas_amount(self)
-               manage_kills(other_unit.armor_part.alive_df, arm_cas2)   
+            else:
+
+                if self.armor_part != []:
+                   arm_cas1 = self.armor_part.calculate_side_attack_cas_amount(other_unit)
+                   Unit.manage_kills(self.armor_part.alive_df, arm_cas1)
+                if other_unit.armor_part != []:
+                   arm_cas2 = other_unit.armor_part.calculate_side_attack_cas_amount(self)
+                   Unit.manage_kills(other_unit.armor_part.alive_df, arm_cas2)   
  
             
-            alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, arm_cas2)
-            self.alive_df = alive_df
-            self.cas_df = cas_df
+                alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, arm_cas2)
+                self.alive_df = alive_df
+                self.cas_df = cas_df
 
-            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
-            other_unit.alive_df = alive_df
-            other_unit.cas_df = cas_df
+                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, arm_cas1)
+                other_unit.alive_df = alive_df
+                other_unit.cas_df = cas_df
             
 
-            cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
-            cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
+                cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
+                cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
         
-            manage_kills(self.alive_df, cas1)
-            manage_kills(other_unit.alive_df, cas2)
+                Unit.manage_kills(self.alive_df, cas1)
+                Unit.manage_kills(other_unit.alive_df, cas2)
 
-            alive_df, cas_df = manage_casualties(self.alive_df, self.cas_df, cas2)
-            self.alive_df = alive_df
-            self.cas_df = cas_df
+                alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, cas2)
+                self.alive_df = alive_df
+                self.cas_df = cas_df
 
-            alive_df, cas_df = manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
-            other_unit.alive_df = alive_df
-            other_unit.cas_df = cas_df
+                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+                other_unit.alive_df = alive_df
+                other_unit.cas_df = cas_df
             
 
-            print(result1)
-            print(cas_koef1,cas_koef2)
-            print('Потери',self.unit_id,arm_cas2+cas2,'(',arm_cas2,'+',cas2,')')
-            print('Потери',other_unit.unit_id,arm_cas1+cas1,'(',arm_cas1,'+',cas1,')')
+                print(result1)
+                print(cas_koef1,cas_koef2)
+                print('Потери',self.unit_id,arm_cas2+cas2,'(',arm_cas2,'+',cas2,')')
+                print('Потери',other_unit.unit_id,arm_cas1+cas1,'(',arm_cas1,'+',cas1,')')
 
 
-        new_log = [current_time,
-                   self.side,
-                   self.unit_id,
-                   self.size,
-                   log_our_force,
-                   cas2,
-                   other_unit.unit_id,
-                   other_unit.size,
-                   log_enemy_force,
-                   cas1,result1]
-        new_log = pd.DataFrame([new_log],columns=['time','attack_unit_side','attack_unit','attack_unit_size','attack_unit_alive_force','attack_cas',
-                                                  'defend_unit','defend_unit_size','defend_unit_alive_force','defend_cas','result'])
+            new_log = [current_time,
+                       self.side,
+                       self.unit_id,
+                       self.size,
+                       log_our_force,
+                       cas2,
+                       other_unit.unit_id,
+                       other_unit.size,
+                       log_enemy_force,
+                       cas1,result1]
+            new_log = pd.DataFrame([new_log],columns=['time','attack_unit_side','attack_unit','attack_unit_size','attack_unit_alive_force','attack_cas',
+                                                      'defend_unit','defend_unit_size','defend_unit_alive_force','defend_cas','result'])
         
-        logs = pd.concat([logs,new_log])
+            logs = pd.concat([logs,new_log])
 
         return logs
         
