@@ -297,7 +297,7 @@ class Unit:
         return armor_unit, cas
 
 
-    def attack_unit(self, other_unit: "Unit",logs,current_time):
+    def inf_attack_unit(self, other_unit: "Unit"):
         def calculate_result(team1,team2):
                 # --- t1: сумма 2 кубиков d24 ---
             if team1 <2:
@@ -342,6 +342,69 @@ class Unit:
         cas1 = 0
         cas2 = 0
 
+
+
+
+
+        team1_power = self.calculate_attack_power()
+        team2_power = other_unit.calculate_attack_power()
+
+        print(team1_power,team2_power)
+        result1,result2 = calculate_result(team1_power,team2_power)
+
+        cas_koef1 = calculate_koef(result1)
+        cas_koef2 = calculate_koef(result2)
+        
+
+        if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
+            print('атака без ответа')
+
+        
+            cas1 = self.calculate_side_attack_cas_amount(other_unit)
+            Unit.manage_kills(self.alive_df, cas1, 'inf_kills')
+
+            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
+
+            result1 = 'side_attack'
+            print(cas1)
+
+
+    
+        else:
+            
+
+            cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
+            cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
+    
+            Unit.manage_kills(self.alive_df, cas1,'inf_kills')
+            Unit.manage_kills(other_unit.alive_df, cas2,'inf_kills')
+
+            alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, cas2)
+            self.alive_df = alive_df
+            self.cas_df = cas_df
+
+            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            other_unit.alive_df = alive_df
+            other_unit.cas_df = cas_df
+        
+
+            print(result1)
+            print(cas_koef1,cas_koef2)
+            print('Потери',self.unit_id,cas2,cas2)
+            print('Потери',other_unit.unit_id,cas1)
+
+
+
+        return result1 , cas2 , cas1
+    
+
+    def base_attack(self, other_unit: "Unit",logs,current_time):
+    
+        cas1 = 0
+        cas2 = 0
+
         log_our_force = len(self.alive_df)
         log_enemy_force = len(other_unit.alive_df)
 
@@ -350,59 +413,14 @@ class Unit:
             result1 = 'armor_attack'
             Unit.manage_kills(self.alive_df, cas1,'apc_kills')
 
+
         else:
-
-
 
             for i in [self,other_unit]:
                 i.check_unit_parameters()
 
-            team1_power = self.calculate_attack_power()
-            team2_power = other_unit.calculate_attack_power()
+            result1, cas2, cas1  = self.inf_attack_unit(other_unit)
 
-            print(team1_power,team2_power)
-            result1,result2 = calculate_result(team1_power,team2_power)
-
-            cas_koef1 = calculate_koef(result1)
-            cas_koef2 = calculate_koef(result2)
-            
-
-            if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
-                print('атака без ответа')
-
-            
-                cas1 = self.calculate_side_attack_cas_amount(other_unit)
-                Unit.manage_kills(self.alive_df, cas1, 'inf_kills')
-
-                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
-                other_unit.alive_df = alive_df
-                other_unit.cas_df = cas_df
-                print(cas1)
-
-
-        
-            else:
-                
-
-                cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
-                cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
-        
-                Unit.manage_kills(self.alive_df, cas1,'inf_kills')
-                Unit.manage_kills(other_unit.alive_df, cas2,'inf_kills')
-
-                alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, cas2)
-                self.alive_df = alive_df
-                self.cas_df = cas_df
-
-                alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
-                other_unit.alive_df = alive_df
-                other_unit.cas_df = cas_df
-            
-
-                print(result1)
-                print(cas_koef1,cas_koef2)
-                print('Потери',self.unit_id,arm_cas2+cas2,'(',arm_cas2,'+',cas2,')')
-                print('Потери',other_unit.unit_id,arm_cas1+cas1,'(',arm_cas1,'+',cas1,')')
 
 
         new_log = [current_time,
