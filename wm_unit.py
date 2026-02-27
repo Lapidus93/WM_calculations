@@ -288,7 +288,7 @@ class Unit:
 
         if cas > len(armor_unit.alive_df):
             cas = len(armor_unit.alive_df)
-        print('Подбита ',cas,' единиц техника')
+
 
         alive_df, cas_df = self.manage_casualties(armor_unit.alive_df, armor_unit.cas_df, cas)
         armor_unit.alive_df = alive_df
@@ -297,7 +297,7 @@ class Unit:
         return armor_unit, cas
 
 
-    def inf_attack_unit(self, other_unit: "Unit"):
+    def direct_attack_unit(self, other_unit: "Unit"):
         def calculate_result(team1,team2):
                 # --- t1: сумма 2 кубиков d24 ---
             if team1 <2:
@@ -349,7 +349,6 @@ class Unit:
         team1_power = self.calculate_attack_power()
         team2_power = other_unit.calculate_attack_power()
 
-        print(team1_power,team2_power)
         result1,result2 = calculate_result(team1_power,team2_power)
 
         cas_koef1 = calculate_koef(result1)
@@ -368,7 +367,7 @@ class Unit:
             other_unit.cas_df = cas_df
 
             result1 = 'side_attack'
-            print(cas1)
+
 
 
     
@@ -390,11 +389,6 @@ class Unit:
             other_unit.cas_df = cas_df
         
 
-            print(result1)
-            print(cas_koef1,cas_koef2)
-            print('Потери',self.unit_id,cas2,cas2)
-            print('Потери',other_unit.unit_id,cas1)
-
 
 
         return result1 , cas2 , cas1
@@ -402,24 +396,54 @@ class Unit:
 
     def base_attack(self, other_unit: "Unit",logs,current_time):
     
-        cas1 = 0
-        cas2 = 0
+        total_cas1 = 0
+        total_cas2 = 0
 
         log_our_force = len(self.alive_df)
         log_enemy_force = len(other_unit.alive_df)
 
-        if other_unit.size == 'ARMOR':
+        if other_unit.size == 'ARMOR' and self.size != 'ARMOR':
             other_unit, cas1 = self.inf_armor_attack(other_unit)
             result1 = 'armor_attack'
             Unit.manage_kills(self.alive_df, cas1,'apc_kills')
+            print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+            total_cas1 += cas1
 
+    
 
         else:
-
             for i in [self,other_unit]:
                 i.check_unit_parameters()
 
-            result1, cas2, cas1  = self.inf_attack_unit(other_unit)
+            if self.size != 'ARMOR' and self.armor_part != [] and other_unit.armor_part == []:
+                print('Механизированный',self.unit_id,'атакует пехотный отряд',other_unit.unit_id)
+                result1, cas2, cas1  = self.armor_part.direct_attack_unit(other_unit)
+                print('Бронированный',self.armor_part.unit_id,'наносит потери',cas1)    
+                total_cas1 += cas1
+                total_cas2 += cas2
+
+
+                result1, cas2, cas1  = self.direct_attack_unit(other_unit)
+                print('В стрелковом бою',self.unit_id,'атакует с результатом',result1)
+                print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
+                total_cas1 += cas1
+                total_cas2 += cas2
+
+
+            elif self.size == 'ARMOR' and other_unit.armor_part == []:
+                result1, cas2, cas1  = self.direct_attack_unit(other_unit)
+                print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
+                print('Потери',other_unit.unit_id,cas1)
+                total_cas1 += cas1
+                total_cas2 += cas2
+                
+
+            else:
+                result1, cas2, cas1  = self.direct_attack_unit(other_unit)
+                print(self.unit_id,'атаковал пехотный отряд',other_unit.unit_id,'c результатом',result1)
+                print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
+                total_cas1 += cas1
+                total_cas2 += cas2
 
 
 
@@ -428,11 +452,11 @@ class Unit:
                     self.unit_id,
                     self.size,
                     log_our_force,
-                    cas2,
+                    total_cas2,
                     other_unit.unit_id,
                     other_unit.size,
                     log_enemy_force,
-                    cas1,
+                    total_cas1,
                     result1]
         new_log = pd.DataFrame([new_log],columns=['time','attack_unit_side','attack_unit','attack_unit_size','attack_unit_alive_force','attack_cas',
                                                     'defend_unit','defend_unit_size','defend_unit_alive_force','defend_cas','result'])
