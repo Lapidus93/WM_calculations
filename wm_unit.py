@@ -133,7 +133,7 @@ class Unit:
 
         attack_power = (self.alive_df['power'].sum() - len(self.cas_df)/5) * size_decrease * cover_attack_bonus * berserk_mode  * elevation_bonus
         
-        if self.armor_part != []:
+        if self.armor_part != [] and len(self.armor_part.alive_df) >0:
             attack_power += self.armor_part.alive_df['power'].sum()
                
         return int(round(attack_power,0))
@@ -402,6 +402,8 @@ class Unit:
         log_our_force = len(self.alive_df)
         log_enemy_force = len(other_unit.alive_df)
 
+
+        # ПЕХОТА атакует БРОНЮ
         if other_unit.size == 'ARMOR' and self.size != 'ARMOR':
             other_unit, cas1 = self.inf_armor_attack(other_unit)
             result1 = 'armor_attack'
@@ -415,6 +417,8 @@ class Unit:
             for i in [self,other_unit]:
                 i.check_unit_parameters()
 
+
+            # МОТОПЕХОТА атакует ПЕХОТУ
             if self.size != 'ARMOR' and self.armor_part != [] and other_unit.armor_part == []:
                 print('Механизированный',self.unit_id,'атакует пехотный отряд',other_unit.unit_id)
                 result1, cas2, cas1  = self.armor_part.direct_attack_unit(other_unit)
@@ -429,7 +433,7 @@ class Unit:
                 total_cas1 += cas1
                 total_cas2 += cas2
 
-
+            # БРОНЯ атакует ПЕХОТУ
             elif self.size == 'ARMOR' and other_unit.armor_part == []:
                 result1, cas2, cas1  = self.direct_attack_unit(other_unit)
                 print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
@@ -437,13 +441,20 @@ class Unit:
                 total_cas1 += cas1
                 total_cas2 += cas2
                 
-
+            # ПЕХОТА атакует ПЕХОТУ или МОТОПЕХОТУ
             else:
                 result1, cas2, cas1  = self.direct_attack_unit(other_unit)
-                print(self.unit_id,'атаковал пехотный отряд',other_unit.unit_id,'c результатом',result1)
+                print(self.unit_id,'атаковал отряд',other_unit.unit_id,'c результатом',result1)
                 print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
                 total_cas1 += cas1
                 total_cas2 += cas2
+
+                if result1 in ['победа','разгром'] and other_unit.armor_part != []:
+                    other_unit, cas1 = self.inf_armor_attack(other_unit.armor_part)
+                    Unit.manage_kills(self.alive_df, cas1,'apc_kills')
+                    print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+                    total_cas1 += cas1
+                    
 
 
 
