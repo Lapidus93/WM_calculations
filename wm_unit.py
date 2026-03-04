@@ -10,6 +10,8 @@ class Unit:
     def __init__(
         self,
         unit_id: str,
+        overall_type: str,
+        personal_type: str,
         size: str = "",
         alive_df=None,
         cas_df=None,
@@ -17,7 +19,8 @@ class Unit:
         last_parameters: Optional[dict] = None,
         side: str = "",
     ):
-
+        self.overall_type = overall_type
+        self.personal_type = personal_type
         self.unit_id = unit_id
         self.size = size
         self.side = side
@@ -35,10 +38,6 @@ class Unit:
         elif len(self.alive_df) > 40:
             self.size = 'CM'
         
-        if 'type' in self.alive_df.columns:
-            self.size = 'ARMOR'
-
-
 
 
 
@@ -81,10 +80,21 @@ class Unit:
             unit_df.loc[rnd_index, cas_type] += 1
 
 
+
+    def update_current_type(self):
+        if self.personal_type == 'inf' and (self.armor_part == [] or len(self.armor_part.alive_df)==0):
+            self.overall_type = 'inf'
+        if self.personal_type == 'arm':
+            self.overall_type = 'arm'
+        if self.personal_type == 'inf' and self.armor_part != [] and len(self.armor_part.alive_df)>0:
+            self.overall_type = 'mech'
+        
+      
+      
+
+
     def check_unit_parameters(self):
-        elev_pos = 0
-        cover_level = 0
-        target_distance = 0
+
         
         print("""
         ######
@@ -587,6 +597,6 @@ class Unit:
             pass
         else:
             armor_component = len(self.armor_part.alive_df)
-        return (f"Unit(unit_id={self.unit_id}, size={self.size}, alive_df={len(self.alive_df)}, "
+        return (f"Unit(unit_id={self.unit_id}, overall_type={self.overall_type},personal_type={self.personal_type},size={self.size}, alive_df={len(self.alive_df)}, "
                         f"cas_df={len(self.cas_df)}, " f"armor_part={armor_component}, "
                         f"last_parameters={self.last_parameters})")
