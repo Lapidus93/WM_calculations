@@ -376,8 +376,8 @@ class Unit:
             return koef
         
 
-        cas1 = 0
-        cas2 = 0
+        enem_cas = 0
+        fr_cas = 0
 
 
 
@@ -391,18 +391,18 @@ class Unit:
 
         result1,result2 = calculate_result(team1_power,team2_power)
 
-        cas_koef1 = calculate_koef(result1)
-        cas_koef2 = calculate_koef(result2)
+        enem_cas = calculate_koef(result1)
+        fr_cas_koef = calculate_koef(result2)
         
 
         if str(other_unit.last_parameters['enemy_unit_id']) != str(self.unit_id):
             print('атака без ответа')
 
         
-            cas1 = self.calculate_side_attack_cas_amount(other_unit)
-            Unit.manage_kills(self.alive_df, cas1, 'inf_kills')
+            enem_cas = self.calculate_side_attack_cas_amount(other_unit)
+            Unit.manage_kills(self.alive_df, enem_cas, 'inf_kills')
 
-            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, enem_cas)
             other_unit.alive_df = alive_df
             other_unit.cas_df = cas_df
 
@@ -414,61 +414,68 @@ class Unit:
         else:
             
 
-            cas1 = self.calculate_cas_amount(cas_koef1,other_unit,result2)
-            cas2 = other_unit.calculate_cas_amount(cas_koef2,self,result1)    
+            enem_cas = self.calculate_cas_amount(enem_cas,other_unit,result2)
+            fr_cas = other_unit.calculate_cas_amount(fr_cas_koef,self,result1)    
     
-            Unit.manage_kills(self.alive_df, cas1,'inf_kills')
-            Unit.manage_kills(other_unit.alive_df, cas2,'inf_kills')
+            Unit.manage_kills(self.alive_df, enem_cas,'inf_kills')
+            Unit.manage_kills(other_unit.alive_df, fr_cas,'inf_kills')
 
-            alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, cas2)
+            alive_df, cas_df = Unit.manage_casualties(self.alive_df, self.cas_df, fr_cas)
             self.alive_df = alive_df
             self.cas_df = cas_df
 
-            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, cas1)
+            alive_df, cas_df = Unit.manage_casualties(other_unit.alive_df, other_unit.cas_df, enem_cas)
             other_unit.alive_df = alive_df
             other_unit.cas_df = cas_df
         
 
 
 
-        return result1 , cas2 , cas1
+        return result1 , fr_cas , enem_cas
     
 
     def base_attack(self, other_unit: "Unit",logs,current_time):
         
         log_attackers_id = self.unit_id   
         log_attackers_type = self.overall_type
-        log_attackers_cas_inf = 0
-        if  self.overall_type == 'inf':
+        log_attackers_inf_force = 0
+        if  self.overall_type in ['inf','mech']:
             log_attackers_inf_force = len(self.alive_df)
 
+        log_attackers_arm_force = 0
+        if  self.overall_type =='mech':
+            log_attackers_arm_force = len(self.armor_part.alive_df)
+        elif  self.overall_type =='arm':
+            log_attackers_arm_force = len(self.alive_df)
+
+        log_attackers_cas_inf = 0
         log_attackers_cas_armor = 0
-        if  self.overall_type == 'arm':
-            log_attackers_cas_armor = len(self.alive_df)
-        elif  self.overall_type == 'mech':
-            log_attackers_cas_armor = len(self.armor_part.alive_df)
-
-
+    
         log_defenders_id = other_unit.unit_id   
         log_defenders_type = other_unit.overall_type
-        log_defenders_cas_inf = 0
-        if  other_unit.overall_type == 'inf':
+        log_defenders_inf_force = 0
+        if  other_unit.overall_type in ['inf','mech']:
             log_defenders_inf_force = len(other_unit.alive_df)
 
+        log_defenders_arm_force = 0
+        if  other_unit.overall_type =='mech':
+            log_defenders_arm_force = len(other_unit.armor_part.alive_df)
+        elif  other_unit.overall_type =='arm':
+            log_defenders_arm_force = len(other_unit.alive_df)
+
+        log_defenders_cas_inf = 0
         log_defenders_cas_armor = 0
-        if  other_unit.overall_type == 'arm':
-            log_defenders_cas_armor = len(other_unit.alive_df)
-        elif  other_unit.overall_type == 'mech':
-            log_defenders_cas_armor = len(other_unit.armor_part.alive_df)
+
 
         log_attack_type = ''
         log_result = ''
 
 
         # ПЕХОТА атакует БРОНЮ
-        if self.size != 'ARMOR' and (self.armor_part == [] or len(self.armor_part.alive_df) == 0 ) and other_unit.size == 'ARMOR':
-            other_unit, cas1 = self.inf_armor_attack(other_unit)
+        if self.overall_type == 'inf' and other_unit.overall_type == 'arm':
             log_attack_type = 'inf_attacks_armor'
+
+            other_unit, cas1 = self.inf_armor_attack(other_unit)
             Unit.manage_kills(self.alive_df, cas1,'apc_kills')
             print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
             log_defenders_cas_armor += cas1
@@ -479,46 +486,52 @@ class Unit:
                 i.check_unit_parameters()
 
             # БРОНЯ атакует БРОНЮ
-            if self.size == 'ARMOR' and other_unit.size == 'ARMOR':
+            if self.overall_type == 'arm' and other_unit.overall_type == 'arm':
+                log_attack_type = 'armor_attacks_armor' 
+            
                 other_unit, cas1 = self.armor_to_armor_attack(other_unit)
-                log_attack_type = 'armor_attacks_armor'
                 Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                 log_defenders_cas_armor += cas1
 
 
 
-            # БРОНЯ атакует МОТОПЕХОТУ
-            elif self.size == 'ARMOR' and other_unit.size != 'ARMOR' and (other_unit.armor_part != [] or len(other_unit.armor_part.alive_df) >0 ):
+            # БРОНЯ атакует МОТОПЕХОТУ 
+            # (не указываются айдишники подразделений при проверке параметров)
+            elif self.overall_type == 'arm' and other_unit.overall_type == 'mech':
+                log_attack_type = 'armor_attacks_mech'
+
                 other_unit, cas1 = self.armor_to_armor_attack(other_unit.armor_part)
-                result1 = 'armor_attacks_mech'
+           
                 Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                total_cas1 += cas1
+                log_defenders_cas_armor +=cas1
+             
 
-
-                result1, cas2, cas1  = self.direct_attack_unit(other_unit,'short')
+                log_result,  fr_cas , enem_cas  = self.direct_attack_unit(other_unit,'short')
                 print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
-                print('Потери',other_unit.unit_id,cas1)
-                total_cas1 += cas1
-                total_cas2 += cas2
+                print('Потери',other_unit.unit_id,enem_cas)
+                log_defenders_cas_inf += enem_cas
+                log_attackers_cas_armor += fr_cas
 
 
 
             # МОТОПЕХОТА атакует ПЕХОТУ
-            elif self.size != 'ARMOR' and self.armor_part != [] and other_unit.size != 'ARMOR' and other_unit.armor_part == []:
+            elif self.overall_type == 'mech' and other_unit.overall_type == 'inf':
+                log_attack_type = 'mech_attacks_inf'
+
                 print('Механизированный',self.unit_id,'атакует пехотный отряд',other_unit.unit_id)
-                result1, cas2, cas1  = self.armor_part.direct_attack_unit(other_unit,'full')
-                print('Бронированный',self.armor_part.unit_id,'наносит потери',cas1)    
-                total_cas1 += cas1
-                total_cas2 += cas2
+                log_result, fr_cas , enem_cas  = self.armor_part.direct_attack_unit(other_unit,'full')
+                print('Бронированный',self.armor_part.unit_id,'наносит потери',enem_cas)    
+                log_defenders_cas_inf += enem_cas
+                log_attackers_cas_inf += fr_cas
 
 
-                result1, cas2, cas1  = self.direct_attack_unit(other_unit,'full')
-                print('В стрелковом бою',self.unit_id,'атакует с результатом',result1)
-                print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
-                total_cas1 += cas1
-                total_cas2 += cas2
+                log_result, fr_cas , enem_cas = self.direct_attack_unit(other_unit,'full')
+                print('В стрелковом бою',self.unit_id,'атакует с результатом',log_result)
+                print('Потери',self.unit_id,fr_cas,' Потери',other_unit.unit_id,enem_cas)
+                log_defenders_cas_inf += enem_cas
+                log_attackers_cas_inf += fr_cas
 
 
             # МОТОПЕХОТА атакует МОТОПЕХОТУ
@@ -588,23 +601,40 @@ class Unit:
                     Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                     print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                     total_cas1 += cas1
-                    
+               
 
 
+        new_log = [str(current_time),
+        log_attackers_id,
+        log_attackers_type,
+        log_attackers_inf_force,
+        log_attackers_arm_force,
+        log_attackers_cas_inf,
+        log_attackers_cas_armor,
+        log_defenders_id,
+        log_defenders_type,
+        log_defenders_inf_force,
+        log_defenders_arm_force,
+        log_defenders_cas_inf,
+        log_defenders_cas_armor,
+        log_attack_type,
+        log_result]
 
-        new_log = [current_time,
-                    self.side,
-                    self.unit_id,
-                    self.size,
-                    log_our_force,
-                    total_cas2,
-                    other_unit.unit_id,
-                    other_unit.size,
-                    log_enemy_force,
-                    total_cas1,
-                    result1]
-        new_log = pd.DataFrame([new_log],columns=['time','attack_unit_side','attack_unit','attack_unit_size','attack_unit_alive_force','attack_cas',
-                                                    'defend_unit','defend_unit_size','defend_unit_alive_force','defend_cas','result'])
+        new_log = pd.DataFrame([new_log],columns=['current_time',
+        'log_attackers_id',
+        'log_attackers_type',
+        'log_attackers_inf_force',
+        'log_attackers_arm_force',
+        'log_attackers_cas_inf',
+        'log_attackers_cas_armor',
+        'log_defenders_id',
+        'log_defenders_type',
+        'log_defenders_inf_force',
+        'log_defenders_arm_force',
+        'log_defenders_cas_inf',
+        'log_defenders_cas_armor',
+        'log_attack_type',
+        'log_result'])
     
         logs = pd.concat([logs,new_log])
 
