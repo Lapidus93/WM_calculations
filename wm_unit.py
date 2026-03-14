@@ -435,24 +435,44 @@ class Unit:
     
 
     def base_attack(self, other_unit: "Unit",logs,current_time):
-    
-        total_cas1 = 0
-        total_cas2 = 0
+        
+        log_attackers_id = self.unit_id   
+        log_attackers_type = self.overall_type
+        log_attackers_cas_inf = 0
+        if  self.overall_type == 'inf':
+            log_attackers_inf_force = len(self.alive_df)
 
-        log_our_force = len(self.alive_df)
-        log_enemy_force = len(other_unit.alive_df)
+        log_attackers_cas_armor = 0
+        if  self.overall_type == 'arm':
+            log_attackers_cas_armor = len(self.alive_df)
+        elif  self.overall_type == 'mech':
+            log_attackers_cas_armor = len(self.armor_part.alive_df)
+
+
+        log_defenders_id = other_unit.unit_id   
+        log_defenders_type = other_unit.overall_type
+        log_defenders_cas_inf = 0
+        if  other_unit.overall_type == 'inf':
+            log_defenders_inf_force = len(other_unit.alive_df)
+
+        log_defenders_cas_armor = 0
+        if  other_unit.overall_type == 'arm':
+            log_defenders_cas_armor = len(other_unit.alive_df)
+        elif  other_unit.overall_type == 'mech':
+            log_defenders_cas_armor = len(other_unit.armor_part.alive_df)
+
+        log_attack_type = ''
+        log_result = ''
 
 
         # ПЕХОТА атакует БРОНЮ
         if self.size != 'ARMOR' and (self.armor_part == [] or len(self.armor_part.alive_df) == 0 ) and other_unit.size == 'ARMOR':
             other_unit, cas1 = self.inf_armor_attack(other_unit)
-            result1 = 'armor_attack_infantry'
+            log_attack_type = 'inf_attacks_armor'
             Unit.manage_kills(self.alive_df, cas1,'apc_kills')
             print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-            total_cas1 += cas1
+            log_defenders_cas_armor += cas1
 
-
-    
 
         else:
             for i in [self,other_unit]:
@@ -461,17 +481,17 @@ class Unit:
             # БРОНЯ атакует БРОНЮ
             if self.size == 'ARMOR' and other_unit.size == 'ARMOR':
                 other_unit, cas1 = self.armor_to_armor_attack(other_unit)
-                result1 = 'armor_attack_armor'
+                log_attack_type = 'armor_attacks_armor'
                 Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                total_cas1 += cas1
+                log_defenders_cas_armor += cas1
 
 
 
             # БРОНЯ атакует МОТОПЕХОТУ
             elif self.size == 'ARMOR' and other_unit.size != 'ARMOR' and (other_unit.armor_part != [] or len(other_unit.armor_part.alive_df) >0 ):
                 other_unit, cas1 = self.armor_to_armor_attack(other_unit.armor_part)
-                result1 = 'armor_attack_armor'
+                result1 = 'armor_attacks_mech'
                 Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                 total_cas1 += cas1
