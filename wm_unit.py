@@ -436,6 +436,8 @@ class Unit:
 
     def base_attack(self, other_unit: "Unit",logs,current_time):
         
+        initiator = self.side
+
         log_attackers_id = self.unit_id   
         log_attackers_type = self.overall_type
         log_attackers_inf_force = 0
@@ -535,104 +537,131 @@ class Unit:
 
 
             # МОТОПЕХОТА атакует МОТОПЕХОТУ
-            elif self.size != 'ARMOR' and self.armor_part != []  and other_unit.size != 'ARMOR' and other_unit.armor_part != []:
+            elif self.overall_type == 'mech' and other_unit.overall_type == 'mech':
+                log_attack_type = 'mech_attacks_mech'
+                
                 other_unit.armor_part, cas1 = self.armor_part.armor_to_armor_attack(other_unit.armor_part)
-                result1 = 'armor_attack_armor'
                 Unit.manage_kills(self.armor_part.alive_df, cas1,'apc_kills')
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                total_cas1 += cas1
+                log_defenders_cas_armor += cas1
 
                 if len(other_unit.armor_part.alive_df) >0:
                     self.armor_part, cas1 = other_unit.armor_part.armor_to_armor_attack(self.armor_part)
-                    result1 = 'armor_attack_armor'
                     Unit.manage_kills(other_unit.armor_part.alive_df, cas1,'apc_kills')
                     print(other_unit.unit_id,'атаковал броню',self.unit_id,'и подбил',cas1,'единиц брони')
+                    log_attackers_cas_armor += cas1
 
-                if len(self.armor_part.alive_df) >0:
-                    print('Механизированный',self.unit_id,'атакует пехотный отряд',other_unit.unit_id)
-                    result1, cas2, cas1  = self.armor_part.direct_attack_unit(other_unit,'full')
-                    print('Бронированный',self.armor_part.unit_id,'наносит потери',cas1)    
-                    total_cas1 += cas1
-                    total_cas2 += cas2
+                log_result, fr_cas , enem_cas = self.direct_attack_unit(other_unit,'short')
+                print(self.unit_id,'атаковал отряд',other_unit.unit_id,'c результатом',log_result)
+                print('Потери',self.unit_id,fr_cas,' Потери',other_unit.unit_id,enem_cas)
+                log_defenders_cas_inf += enem_cas
+                log_attackers_cas_inf += fr_cas
 
-
-                result1, cas2, cas1  = self.direct_attack_unit(other_unit,'full')
-                print('В стрелковом бою',self.unit_id,'атакует с результатом',result1)
-                print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
-                total_cas1 += cas1
-                total_cas2 += cas2
-
-
-
-            # МОТОПЕХОТА атакует БРОНЮ
-            elif self.size != 'ARMOR'  and (self.armor_part != [] or len(self.armor_part.alive_df) >0 ) and other_unit.size == 'ARMOR':
-                
-                other_unit, cas1 = self.armor_part.armor_to_armor_attack(other_unit)
-                result1 = 'armor_attack_armor'
-                Unit.manage_kills(self.armor_part.alive_df, cas1,'apc_kills')
-                print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                total_cas1 += cas1
-            
-                if self.last_parameters['target_distance'] <= 1:
-                    other_unit, cas1 = self.inf_armor_attack(other_unit)
-                    result1 = 'armor_attack_infantry'
-                    Unit.manage_kills(self.alive_df, cas1,'apc_kills')
-                    print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                    total_cas1 += cas1
-
-            # БРОНЯ атакует ПЕХОТУ
-            elif self.size == 'ARMOR' and other_unit.armor_part == []:
-                result1, cas2, cas1  = self.direct_attack_unit(other_unit,'full')
-                print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
-                print('Потери',other_unit.unit_id,cas1)
-                total_cas1 += cas1
-                total_cas2 += cas2
-                
-            # ПЕХОТА атакует ПЕХОТУ или МОТОПЕХОТУ
-            else:
-                result1, cas2, cas1  = self.direct_attack_unit(other_unit,'full')
-                print(self.unit_id,'атаковал отряд',other_unit.unit_id,'c результатом',result1)
-                print('Потери',self.unit_id,cas2,' Потери',other_unit.unit_id,cas1)
-                total_cas1 += cas1
-                total_cas2 += cas2
-
-                if result1 in ['победа','разгром'] and (other_unit.armor_part != [] or len(other_unit.armor_part.alive_df) >0 ):
+                if log_result in ['победа','разгром'] and len(other_unit.armor_part.alive_df) >0 :
                     other_unit, cas1 = self.inf_armor_attack(other_unit.armor_part)
                     Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                     print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                    total_cas1 += cas1
+                    log_defenders_cas_armor += cas1
+
+                elif log_result in ['засада','поражение'] and len(self.armor_part.alive_df) >0 :
+                    self, cas1 = other_unit.inf_armor_attack(self.armor_part)
+                    Unit.manage_kills(other_unit.alive_df, cas1,'apc_kills')
+                    print(other_unit.unit_id,'атаковал броню из отряда',self.unit_id,'и подбил',cas1,'единиц брони')
+                    log_attackers_cas_armor += cas1
+
+
+            # МОТОПЕХОТА атакует БРОНЮ
+            elif self.overall_type == 'mech'  and  other_unit.overall_type == 'arm':
+                log_attack_type = 'mech_attacks_arm'
+                
+                other_unit, cas1 = self.armor_part.armor_to_armor_attack(other_unit)
+                Unit.manage_kills(self.armor_part.alive_df, cas1,'apc_kills')
+                print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+                log_defenders_cas_armor += cas1
+            
+                if self.last_parameters['target_distance'] <= 1:
+                    other_unit, cas1 = self.inf_armor_attack(other_unit)
+                    Unit.manage_kills(self.alive_df, cas1,'apc_kills')
+                    print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+                    log_defenders_cas_armor += cas1
+
+            # БРОНЯ атакует ПЕХОТУ (не вносим айдишники подразделений)
+            elif self.overall_type == 'arm' and other_unit.overall_type == 'inf':
+                log_attack_type = 'arm_attacks_inf'
+
+                result1, fr_cas , enem_cas  = self.direct_attack_unit(other_unit,'full')
+                print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
+                print('Потери',other_unit.unit_id,enem_cas)
+                log_defenders_cas_inf += enem_cas
+
+                
+            # ПЕХОТА атакует ПЕХОТУ или МОТОПЕХОТУ
+            else:
+                log_attack_type = 'inf_attacks_inf'
+                if other_unit.overall_type == 'mech':
+                    log_attack_type = 'inf_attacks_mech'
+                log_result, fr_cas , enem_cas = self.direct_attack_unit(other_unit,'full')
+                print(self.unit_id,'атаковал отряд',other_unit.unit_id,'c результатом',log_result)
+                print('Потери',self.unit_id,fr_cas,' Потери',other_unit.unit_id,enem_cas)
+                log_defenders_cas_inf += enem_cas
+                log_attackers_cas_inf += fr_cas
+
+                if log_result in ['победа','разгром'] and (other_unit.armor_part != [] or len(other_unit.armor_part.alive_df) >0 ):
+
+                    other_unit, cas1 = self.inf_armor_attack(other_unit.armor_part)
+                    Unit.manage_kills(self.alive_df, cas1,'apc_kills')
+                    print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+                    log_defenders_cas_armor += cas1
                
-
-
-        new_log = [str(current_time),
-        log_attackers_id,
-        log_attackers_type,
-        log_attackers_inf_force,
-        log_attackers_arm_force,
-        log_attackers_cas_inf,
-        log_attackers_cas_armor,
-        log_defenders_id,
-        log_defenders_type,
-        log_defenders_inf_force,
-        log_defenders_arm_force,
-        log_defenders_cas_inf,
-        log_defenders_cas_armor,
-        log_attack_type,
-        log_result]
+        if initiator == 'blue':
+            new_log = [str(current_time),
+            initiator,
+            log_attackers_id,
+            log_attackers_type,
+            log_attackers_inf_force,
+            log_attackers_arm_force,
+            log_attackers_cas_inf,
+            log_attackers_cas_armor,
+            log_defenders_id,
+            log_defenders_type,
+            log_defenders_inf_force,
+            log_defenders_arm_force,
+            log_defenders_cas_inf,
+            log_defenders_cas_armor,
+            log_attack_type,
+            log_result]
+        else:
+            new_log = [str(current_time),
+            initiator,
+            log_defenders_id,
+            log_defenders_type,
+            log_defenders_inf_force,
+            log_defenders_arm_force,
+            log_defenders_cas_inf,
+            log_defenders_cas_armor,
+            log_attackers_id,
+            log_attackers_type,
+            log_attackers_inf_force,
+            log_attackers_arm_force,
+            log_attackers_cas_inf,
+            log_attackers_cas_armor,
+            log_attack_type,
+            log_result]
 
         new_log = pd.DataFrame([new_log],columns=['current_time',
-        'log_attackers_id',
-        'log_attackers_type',
-        'log_attackers_inf_force',
-        'log_attackers_arm_force',
-        'log_attackers_cas_inf',
-        'log_attackers_cas_armor',
-        'log_defenders_id',
-        'log_defenders_type',
-        'log_defenders_inf_force',
-        'log_defenders_arm_force',
-        'log_defenders_cas_inf',
-        'log_defenders_cas_armor',
+        'initiator',
+        'log_blue_id',
+        'log_blue_type',
+        'log_blue_inf_force',
+        'log_blue_arm_force',
+        'log_blue_cas_inf',
+        'log_blue_cas_armor',
+        'log_red_id',
+        'log_red_type',
+        'log_red_inf_force',
+        'log_red_arm_force',
+        'log_red_cas_inf',
+        'log_red_cas_armor',
         'log_attack_type',
         'log_result'])
     
