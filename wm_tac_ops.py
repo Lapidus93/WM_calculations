@@ -1,10 +1,4 @@
-﻿import itertools
-from collections import Counter
-import matplotlib.pyplot as plt
-import random 
-from typing import Optional
-import random
-from collections import Counter
+﻿import random
 import wm_unit as wmu
 import pandas as pd
 from datetime import timedelta
@@ -65,3 +59,29 @@ def load_units(list_of_sides):
     for side in list_of_sides:
         for podr in side:
             podr.alive_df = pd.read_csv(podr.unit_id+'.csv')
+
+
+def create_inf(name,ls,side):
+    alive_df = []
+    for i in range(ls):
+        alive_df.append([name+'_'+str(i),1,0,0])
+    alive_df = pd.DataFrame(alive_df,columns=['sol_id','power','inf_kills','apc_kills'])
+
+    unit = wmu.Unit(unit_id=name, overall_type="inf",personal_type="inf", alive_df=alive_df,  cas_df=pd.DataFrame(),side=side)
+    return unit
+
+def create_arm(name,ls,side):
+    alive_df = []
+    for i in range(ls):
+        alive_df.append([name+'_'+str(i),'apc',9,8,0,0])
+    alive_df = pd.DataFrame(alive_df,columns=['armor_id','type','transport','power','inf_kills','apc_kills'])
+
+    unit = wmu.Unit(unit_id=name, overall_type="arm",personal_type="arm", alive_df=alive_df,  cas_df=pd.DataFrame(),side=side)
+    return unit
+
+def create_mech(inf_name,ls,arm_name,armor_cnt,side):
+    inf = create_inf(inf_name,ls,side)
+    arm = create_arm(arm_name,armor_cnt,side)
+    inf.armor_part = arm
+    inf.update_current_type()
+    return inf, arm

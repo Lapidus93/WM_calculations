@@ -82,13 +82,13 @@ class Unit:
 
 
     def update_current_type(self):
-        if self.personal_type == 'inf' and (self.armor_part == [] or len(self.armor_part.alive_df)==0):
-            self.overall_type = 'inf'
         if self.personal_type == 'arm':
             self.overall_type = 'arm'
-        if self.personal_type == 'inf' and self.armor_part != [] and len(self.armor_part.alive_df)>0:
+        elif self.personal_type == 'inf' and self.armor_part != [] and len(self.armor_part.alive_df) > 0:
             self.overall_type = 'mech'
-        
+        else:
+            self.overall_type = 'inf'
+
       
       
 
@@ -300,7 +300,7 @@ class Unit:
             cas = len(armor_unit.alive_df)
 
 
-        alive_df, cas_df = self.manage_casualties(armor_unit.alive_df, armor_unit.cas_df, cas)
+        alive_df, cas_df = armor_unit.manage_casualties(armor_unit.alive_df, armor_unit.cas_df, cas)
         armor_unit.alive_df = alive_df
         armor_unit.cas_df = cas_df
 
@@ -482,8 +482,6 @@ class Unit:
             print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
             log_defenders_cas_armor += cas1
 
-            self.update_current_type()
-            other_unit.update_current_type()
 
 
         else:
@@ -499,8 +497,6 @@ class Unit:
                 print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                 log_defenders_cas_armor += cas1
 
-                self.update_current_type()
-                other_unit.update_current_type()
 
 
 
@@ -521,9 +517,6 @@ class Unit:
                 print('Потери',other_unit.unit_id,enem_cas)
                 log_defenders_cas_inf += enem_cas
                 log_attackers_cas_armor += fr_cas
-
-                self.update_current_type()
-                other_unit.update_current_type()
 
 
 
@@ -546,14 +539,10 @@ class Unit:
 
 
                 if log_result in ['засада','поражение'] and len(self.armor_part.alive_df) >0 :
-                    self, cas1 = other_unit.inf_armor_attack(self.armor_part)
+                    self.armor_part, cas1 = other_unit.inf_armor_attack(self.armor_part)
                     Unit.manage_kills(other_unit.alive_df, cas1,'apc_kills')
                     print(other_unit.unit_id,'атаковал броню из отряда',self.unit_id,'и подбил',cas1,'единиц брони')
                     log_attackers_cas_armor += cas1
-
-
-                self.update_current_type()
-                other_unit.update_current_type()
 
 
             # МОТОПЕХОТА атакует МОТОПЕХОТУ
@@ -584,14 +573,10 @@ class Unit:
                     log_defenders_cas_armor += cas1
 
                 elif log_result in ['засада','поражение'] and len(self.armor_part.alive_df) >0 :
-                    self, cas1 = other_unit.inf_armor_attack(self.armor_part)
+                    self.armor_part, cas1 = other_unit.inf_armor_attack(self.armor_part)
                     Unit.manage_kills(other_unit.alive_df, cas1,'apc_kills')
                     print(other_unit.unit_id,'атаковал броню из отряда',self.unit_id,'и подбил',cas1,'единиц брони')
                     log_attackers_cas_armor += cas1
-
-                self.update_current_type()
-                other_unit.update_current_type()
-
 
             # МОТОПЕХОТА атакует БРОНЮ
             elif self.overall_type == 'mech'  and  other_unit.overall_type == 'arm':
@@ -608,9 +593,6 @@ class Unit:
                     print(self.unit_id,'атаковал броню',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                     log_defenders_cas_armor += cas1
 
-                self.update_current_type()
-                other_unit.update_current_type()
-
 
             # БРОНЯ атакует ПЕХОТУ (не вносим айдишники подразделений)
             elif self.overall_type == 'arm' and other_unit.overall_type == 'inf':
@@ -620,10 +602,6 @@ class Unit:
                 print('Бронированный',self.unit_id,'обстрелял пехотный отряд',other_unit.unit_id)
                 print('Потери',other_unit.unit_id,enem_cas)
                 log_defenders_cas_inf += enem_cas
-
-                self.update_current_type()
-                other_unit.update_current_type()
-
 
 
             # ПЕХОТА атакует ПЕХОТУ или МОТОПЕХОТУ
@@ -643,9 +621,6 @@ class Unit:
                     Unit.manage_kills(self.alive_df, cas1,'apc_kills')
                     print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
                     log_defenders_cas_armor += cas1
-
-                self.update_current_type()
-                other_unit.update_current_type()
 
                
         if initiator == 'blue':
@@ -701,6 +676,9 @@ class Unit:
         'log_result'])
     
         logs = pd.concat([logs,new_log])
+
+        self.update_current_type()
+        other_unit.update_current_type()
 
         return logs
         
