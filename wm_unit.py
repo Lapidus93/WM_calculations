@@ -615,12 +615,12 @@ class Unit:
                 log_defenders_cas_inf += enem_cas
                 log_attackers_cas_inf += fr_cas
 
-                if log_result in ['победа','разгром'] and (other_unit.armor_part != [] or len(other_unit.armor_part.alive_df) >0 ):
-
-                    other_unit, cas1 = self.inf_armor_attack(other_unit.armor_part)
-                    Unit.manage_kills(self.alive_df, cas1,'apc_kills')
-                    print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
-                    log_defenders_cas_armor += cas1
+                if log_result in ['победа','разгром'] and other_unit.armor_part != []:
+                    if len(other_unit.armor_part.alive_df) >0:
+                        other_unit, cas1 = self.inf_armor_attack(other_unit.armor_part)
+                        Unit.manage_kills(self.alive_df, cas1,'apc_kills')
+                        print(self.unit_id,'атаковал броню из отряда',other_unit.unit_id,'и подбил',cas1,'единиц брони')
+                        log_defenders_cas_armor += cas1
 
                
         if initiator == 'blue':
