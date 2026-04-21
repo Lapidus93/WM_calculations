@@ -89,6 +89,80 @@ def process_workbook(input_path: str | Path, output_path: str | Path, sheet_name
             df.to_excel(writer, sheet_name=current_sheet, index=False)
 
 
+def build_brigade_template(config: dict):
+    soldiers_per_squad = config["soldier_id"]
+    squads_per_platoon = config["squad_id"]
+    platoons_per_company = config["platoon_id"]
+    companies_per_battalion = config["company_id"]
+    battalions_per_brigade = config["battalion_id"]
+    armor_cnt = config["armor_cnt"]
+
+    inf_rows = []
+
+    soldier_global_id = 1
+
+    for battalion_id in range(1, battalions_per_brigade + 1):
+        for company_id in range(1, companies_per_battalion + 1):
+            for platoon_id in range(1, platoons_per_company + 1):
+                for squad_id in range(1, squads_per_platoon + 1):
+                    for soldier_local_id in range(1, soldiers_per_squad + 1):
+
+                        battalion_uid = f"B{battalion_id}"
+                        company_uid = f"{battalion_uid}-C{company_id}"
+                        platoon_uid = f"{company_uid}-P{platoon_id}"
+                        squad_uid = f"{platoon_uid}-S{squad_id}"
+                        soldier_uid = f"{squad_uid}-U{soldier_local_id}"
+
+                        inf_rows.append({
+                            "global_soldier_id": soldier_global_id,
+
+                      
+                            "soldier_id": soldier_local_id,
+                            "squad_id": squad_id,
+                            "platoon_id": platoon_id,
+                            "company_id": company_id,
+                            "battalion_id": battalion_id,
+
+                            # uid
+                            "battalion_uid": battalion_uid,
+                            "company_uid": company_uid,
+                            "platoon_uid": platoon_uid,
+                            "squad_uid": squad_uid,
+                            "soldier_uid": soldier_uid,
+
+              
+                            "status": "alive",
+                            "power": 1,
+                            "side": "",
+                            "inf_kills": 0,
+                            "apc_kills": 0,
+                        })
+
+                        soldier_global_id += 1
+
+    inf_df = pd.DataFrame(inf_rows)
+
+    armor_rows = []
+
+    for armor_id in range(1, armor_cnt + 1):
+        armor_rows.append({
+            "armor_id": armor_id,
+            "armor_uid": f"A{armor_id}",
+            "type": "apc",
+            "transport": 9,
+            "power": 8,
+            "status": "alive",
+            "side": "",
+            "inf_kills": 0,
+            "apc_kills": 0,
+        })
+
+    armor_df = pd.DataFrame(armor_rows)
+
+    return inf_df, armor_df
+
+
+
 if __name__ == "__main__":
     src = Path("/mnt/data/brigade_template.xlsx")
     dst = Path("/mnt/data/brigade_template_with_uids.xlsx")
