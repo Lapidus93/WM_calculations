@@ -634,16 +634,28 @@ class ForceManager:
         left_label = f"{node.formation_uid}-PART1[{left_children[0]}..{left_children[-1]}]"
         right_label = f"{node.formation_uid}-PART2[{right_children[0]}..{right_children[-1]}]"
 
+        left_level = node.level
+        left_uid = node.formation_uid
+        if len(left_children) == 1:
+            left_level = child_level
+            left_uid = str(left_children[0])
+
+        right_level = node.level
+        right_uid = node.formation_uid
+        if len(right_children) == 1:
+            right_level = child_level
+            right_uid = str(right_children[0])
+
         left = FormationSlice(
-            level=node.level,
-            formation_uid=node.formation_uid,
+            level=left_level,
+            formation_uid=left_uid,
             df=left_df,
             slice_label=left_label,
             split_basis=basis_label,
         )
         right = FormationSlice(
-            level=node.level,
-            formation_uid=node.formation_uid,
+            level=right_level,
+            formation_uid=right_uid,
             df=right_df,
             slice_label=right_label,
             split_basis=basis_label,
