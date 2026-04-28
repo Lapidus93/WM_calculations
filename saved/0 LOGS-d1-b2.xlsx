@@ -1,0 +1,8 @@
+current_time,initiator,log_blue_id,log_blue_type,log_blue_inf_force,log_blue_arm_force,log_blue_cas_inf,log_blue_cas_armor,log_red_id,log_red_type,log_red_inf_force,log_red_arm_force,log_red_cas_inf,log_red_cas_armor,log_attack_type,log_result
+2026-04-06 08:30:00,blue,pc1,mech,126,9,0,0,ep1,inf,42,0,22,0,mech_attacks_inf,победа
+2026-04-06 13:30:00,blue,ppp,mech,84,6,4,0,ec1,inf,84,0,21,0,mech_attacks_inf,победа
+2026-04-06 16:00:00,blue,ppp,mech,80,6,2,0,ec1,inf,63,0,19,0,mech_attacks_inf,разгром
+2026-04-06 18:30:00,blue,ppp,mech,78,6,0,0,ec1,inf,44,0,22,0,mech_attacks_inf,разгром
+2026-04-06 18:30:00,blue,ppp,mech,78,6,7,0,ec2,inf,126,0,14,0,mech_attacks_inf,ничья
+2026-04-06 18:30:00,blue,pc1,mech,126,9,0,0,ec2,inf,126,0,82,0,mech_attacks_inf,разгром
+2026-04-06 18:30:00,blue,ppp,mech,71,6,3,0,ec1,inf,22,0,11,0,mech_attacks_inf,разгром

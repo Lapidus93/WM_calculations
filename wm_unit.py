@@ -31,11 +31,11 @@ class Unit:
         self.alive_df = alive_df
 
 
-        if 0 < len(self.alive_df) <= 12:
+        if 0 < len(self.alive_df) <= 14:
             self.size = 'SQ'
-        elif 13 < len(self.alive_df) <= 40:
+        elif 13 < len(self.alive_df) <= 42:
             self.size = 'PT'
-        elif len(self.alive_df) > 40:
+        elif len(self.alive_df) > 43:
             self.size = 'CM'
         
 
