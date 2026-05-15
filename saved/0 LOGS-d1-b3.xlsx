@@ -1,0 +1,6 @@
+current_time,initiator,log_blue_id,log_blue_type,log_blue_inf_force,log_blue_arm_force,log_blue_cas_inf,log_blue_cas_armor,log_red_id,log_red_type,log_red_inf_force,log_red_arm_force,log_red_cas_inf,log_red_cas_armor,log_attack_type,log_result
+2026-05-11 04:45:00,red,pc1,inf,108,0,6,0,ep,inf,36,0,0,0,inf_attacks_inf,победа
+2026-05-11 05:00:00,red,pc1,inf,102,0,2,0,ep,inf,36,0,0,0,inf_attacks_inf,победа
+2026-05-11 05:15:00,red,pc1,inf,100,0,3,0,ep,inf,36,0,11,0,inf_attacks_inf,поражение
+2026-05-11 05:15:00,red,pc1,inf,97,0,0,0,ep,inf,25,0,0,0,inf_attacks_inf,side_attack
+2026-05-11 05:15:00,blue,pc3,inf,108,0,0,0,ep,inf,25,0,8,0,inf_attacks_inf,side_attack
