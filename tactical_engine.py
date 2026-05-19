@@ -10,7 +10,7 @@ from force_manager import ForceManager
 from ground_engine import GroundEngine, BattleContext
 
 
-def tact_battle(files, player_data, enemy_data, other_data):
+def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
 
     print('start')
 
@@ -116,10 +116,10 @@ def tact_battle(files, player_data, enemy_data, other_data):
         return pd.concat([existing_df, prepared_new_df], ignore_index=True)
 
     class TacticalArmorTestRunner:
-        def __init__(self, player_file: str, enemy_file: str):
+        def __init__(self, player_file: str, enemy_file: str, injury_table=None):
             self.player_manager = ForceManager.from_excel(player_file)
             self.enemy_manager = ForceManager.from_excel(enemy_file)
-            self.engine = GroundEngine()
+            self.engine = GroundEngine(injury_table=injury_table)
             self.logs = pd.DataFrame(columns=LOG_COLUMNS)
             self.unit_next_time: dict[str, datetime] = {}
 
@@ -373,7 +373,7 @@ def tact_battle(files, player_data, enemy_data, other_data):
             f"потери red: {int(stats['red_cas_inf_total'])} inf / {int(stats['red_cas_armor_total'])} arm"
         )
 
-    runner = TacticalArmorTestRunner(PLAYER_FILE, ENEMY_FILE)
+    runner = TacticalArmorTestRunner(PLAYER_FILE, ENEMY_FILE, injury_table=injury_table)
     result_bundle = runner.run()
     print_short_summary(result_bundle)
     print("\nФайлы сохранены:")
