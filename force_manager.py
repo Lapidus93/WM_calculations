@@ -480,9 +480,25 @@ class ForceManager:
                 )
 
         if killed_uids:
-            self.master_df.loc[
-                self.master_df["soldier_uid"].astype(str).isin(killed_uids), "status"
-            ] = "killed"
+            if "status" in unit.cas_df.columns and not unit.cas_df.empty and "soldier_uid" in unit.cas_df.columns:
+                status_map = (
+                    unit.cas_df[["soldier_uid", "status"]]
+                    .drop_duplicates(subset=["soldier_uid"])
+                    .set_index("soldier_uid")["status"]
+                    .to_dict()
+                )
+                mask = self.master_df["soldier_uid"].astype(str).isin(
+                    {str(k) for k in status_map}
+                )
+                self.master_df.loc[mask, "status"] = (
+                    self.master_df.loc[mask, "soldier_uid"]
+                    .astype(str)
+                    .map({str(k): v for k, v in status_map.items()})
+                )
+            else:
+                self.master_df.loc[
+                    self.master_df["soldier_uid"].astype(str).isin(killed_uids), "status"
+                ] = "killed"
 
             sync_cols = [c for c in ["inf_kills", "apc_kills", "side"] if c in unit.cas_df.columns]
             if sync_cols:

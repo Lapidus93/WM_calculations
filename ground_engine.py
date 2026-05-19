@@ -58,8 +58,9 @@ class GroundEngine:
     - splits base_attack logic into small resolvers.
     """
 
-    def __init__(self, rng: Optional[random.Random] = None):
+    def __init__(self, rng: Optional[random.Random] = None, injury_table=None):
         self.rng = rng or random.Random()
+        self.injury_table = injury_table
 
     # ------------------------------------------------------------------
     # Public API
@@ -271,6 +272,17 @@ class GroundEngine:
         )
         return pd.concat([logs, row_df], ignore_index=True)
 
+    def _apply_inf_casualties(self, unit: Unit, cas: int, shooter_type: str, distance: int):
+        """Apply infantry casualties using injury table if available, else plain casualties."""
+        if self.injury_table is not None and getattr(unit, 'personal_type', '') == 'inf':
+            return Unit.manage_casualties_with_injury(
+                unit.alive_df, unit.cas_df, cas,
+                attacker_type=shooter_type,
+                distance=distance,
+                injury_table=self.injury_table,
+            )
+        return Unit.manage_casualties(unit.alive_df, unit.cas_df, cas)
+
     @staticmethod
     def _armor_alive(unit: Unit) -> bool:
         return unit.armor_part not in (None, []) and len(unit.armor_part.alive_df) > 0
@@ -405,11 +417,13 @@ class GroundEngine:
         enemy_koef = calculate_koef(result1)
         friendly_koef = calculate_koef(result2)
 
+        distance = int(attacker.last_parameters.get("target_distance", 0))
+
         if str(defender.last_parameters.get("enemy_unit_id", "")) != str(attacker.unit_id):
             enemy_losses = self._calculate_side_attack_cas_amount(attacker, defender)
             self._manage_kills_safe(attacker.alive_df, enemy_losses, "inf_kills")
 
-            alive_df, cas_df = Unit.manage_casualties(defender.alive_df, defender.cas_df, enemy_losses)
+            alive_df, cas_df = self._apply_inf_casualties(defender, enemy_losses, attacker.personal_type, distance)
             defender.alive_df = alive_df
             defender.cas_df = cas_df
             return "side_attack", 0, enemy_losses
@@ -420,11 +434,11 @@ class GroundEngine:
         self._manage_kills_safe(attacker.alive_df, enemy_losses, "inf_kills")
         self._manage_kills_safe(defender.alive_df, friendly_losses, "inf_kills")
 
-        alive_df, cas_df = Unit.manage_casualties(attacker.alive_df, attacker.cas_df, friendly_losses)
+        alive_df, cas_df = self._apply_inf_casualties(attacker, friendly_losses, defender.personal_type, distance)
         attacker.alive_df = alive_df
         attacker.cas_df = cas_df
 
-        alive_df, cas_df = Unit.manage_casualties(defender.alive_df, defender.cas_df, enemy_losses)
+        alive_df, cas_df = self._apply_inf_casualties(defender, enemy_losses, attacker.personal_type, distance)
         defender.alive_df = alive_df
         defender.cas_df = cas_df
 
