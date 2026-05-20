@@ -26,11 +26,15 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
     PLAYER_FORMATIONS = player_data['PLAYER_FORMATIONS']
     PLAYER_ARMOR_COUNT = player_data['PLAYER_ARMOR_COUNT']
     PLAYER_COVER_RANGE = player_data['PLAYER_COVER_RANGE']
+    PLAYER_ELEVATION_RANGE = player_data['PLAYER_ELEVATION_RANGE']
+    PLAYER_EVAC_TIME = player_data.get('PLAYER_EVAC_TIME', 0)
 
     ENEMY_LEVEL = enemy_data['ENEMY_LEVEL']
     ENEMY_FORMATIONS = enemy_data['ENEMY_FORMATIONS']
     ENEMY_ARMOR_COUNT = enemy_data['ENEMY_ARMOR_COUNT']
     ENEMY_COVER_RANGE = enemy_data['ENEMY_COVER_RANGE']
+    ENEMY_ELEVATION_RANGE = enemy_data['ENEMY_ELEVATION_RANGE']
+    ENEMY_EVAC_TIME = enemy_data.get('ENEMY_EVAC_TIME', 0)
 
     TARGET_UNITS_PER_SIDE = other_data['TARGET_UNITS_PER_SIDE']
 
@@ -38,7 +42,6 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
     MAX_BATTLES = other_data['MAX_BATTLES']
 
     DISTANCE_RANGE = other_data['DISTANCE_RANGE']
-    ELEVATION_RANGE = other_data['ELEVATION_RANGE']
 
     START_TIME = other_data['START_TIME']
 
@@ -124,6 +127,21 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
             self.unit_next_time: dict[str, datetime] = {}
 
         @staticmethod
+        def _run_evac_checks(units, evac_time):
+            """Roll d6 per heavy casualty, evac_time times. Roll of 1 → died_from_injury."""
+            died_total = 0
+            for _ in range(evac_time):
+                for unit in units:
+                    if unit.cas_df is None or unit.cas_df.empty:
+                        continue
+                    heavy_idx = unit.cas_df.index[unit.cas_df['status'] == 'heavy']
+                    for idx in heavy_idx:
+                        if random.randint(1, 6) == 1:
+                            unit.cas_df.loc[idx, 'status'] = 'died_from_injury'
+                            died_total += 1
+            return died_total
+
+        @staticmethod
         def _alive_units(units):
             alive = []
             for u in units:
@@ -154,8 +172,8 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
             return BattleContext(
                 attacker_cover=attacker_cover,
                 defender_cover=defender_cover,
-                attacker_elevation=random.randint(*ELEVATION_RANGE),
-                defender_elevation=random.randint(*ELEVATION_RANGE),
+                attacker_elevation=random.randint(*PLAYER_ELEVATION_RANGE),
+                defender_elevation=random.randint(*ENEMY_ELEVATION_RANGE),
                 distance=random.randint(*DISTANCE_RANGE),
                 defender_returns_fire=True,
                 attacker_berserk=False,
@@ -283,6 +301,10 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
                     "red_cover": context.defender_cover,
                 })
 
+            blue_evac_died = self._run_evac_checks(player_units, PLAYER_EVAC_TIME)
+            red_evac_died  = self._run_evac_checks(enemy_units,  ENEMY_EVAC_TIME)
+            print(f"  Эвакуация: blue умерли от ранений — {blue_evac_died}, red — {red_evac_died}")
+
             self.player_manager.apply_many_battle_results(player_units)
             self.enemy_manager.apply_many_battle_results(enemy_units)
 
@@ -307,8 +329,7 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
             }], columns=TACTICAL_LOG_COLUMNS)
 
             ground_log_df = self.logs.copy()
-            if 'tactical_buttle_num' not in ground_log_df.columns:
-                ground_log_df.insert(0, 'tactical_buttle_num', TACTICAL_BUTTLE_NUM)
+            ground_log_df['tactical_buttle_num'] = TACTICAL_BUTTLE_NUM
 
             player_plan_columns = ['tactical_buttle_num'] + [c for c in player_plan.columns if c != 'tactical_buttle_num']
             enemy_plan_columns = ['tactical_buttle_num'] + [c for c in enemy_plan.columns if c != 'tactical_buttle_num']
