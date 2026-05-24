@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+from typing import Optional
 
 import pandas as pd
 
@@ -37,6 +38,59 @@ def _upgrade_status(current: str, hit_zone: str) -> str:
     return "killed"
 
 
+def _build_arty_log_row(
+    current_time,
+    initiator: str,
+    weapon: str,
+    shells_cnt: int,
+    total_cas: int,
+    target_unit_id: str,
+    target_side: str,
+) -> pd.DataFrame:
+    """Build a single-row DataFrame in the standard battle log format."""
+    if initiator == "blue":
+        # blue fires at red — weapon/shells in blue columns, cas+id in red columns
+        row = {
+            "current_time":       str(current_time),
+            "initiator":          initiator,
+            "log_blue_id":        "",
+            "log_blue_type":      weapon,
+            "log_blue_inf_force": shells_cnt,
+            "log_blue_arm_force": "",
+            "log_blue_cas_inf":   "",
+            "log_blue_cas_armor": "",
+            "log_red_id":         target_unit_id,
+            "log_red_type":       "",
+            "log_red_inf_force":  "",
+            "log_red_arm_force":  "",
+            "log_red_cas_inf":    total_cas,
+            "log_red_cas_armor":  "",
+            "log_attack_type":    "art_air_fire",
+            "log_result":         "",
+        }
+    else:
+        # red fires at blue — weapon/shells in red columns, cas+id in blue columns
+        row = {
+            "current_time":       str(current_time),
+            "initiator":          initiator,
+            "log_blue_id":        target_unit_id,
+            "log_blue_type":      "",
+            "log_blue_inf_force": "",
+            "log_blue_arm_force": "",
+            "log_blue_cas_inf":   total_cas,
+            "log_blue_cas_armor": "",
+            "log_red_id":         "",
+            "log_red_type":       weapon,
+            "log_red_inf_force":  shells_cnt,
+            "log_red_arm_force":  "",
+            "log_red_cas_inf":    "",
+            "log_red_cas_armor":  "",
+            "log_attack_type":    "art_air_fire",
+            "log_result":         "",
+        }
+    return pd.DataFrame([row])
+
+
 # ---------------------------------------------------------------------------
 # Main function
 # ---------------------------------------------------------------------------
@@ -47,6 +101,8 @@ def artillery_strike(
     shells_cnt: int,
     weapon: str,
     artillery_table: pd.DataFrame,
+    logs=None,
+    current_time=None,
 ) -> dict:
     """Simulate an artillery/bombing salvo against target_unit.
 
@@ -59,18 +115,28 @@ def artillery_strike(
        soldier's distance and applies/upgrades their injury status.
     4. Moves all non-alive soldiers from alive_df to cas_df with their final
        status set (killed / heavy / light).
+    5. If logs and current_time are provided, appends a log row in the standard
+       battle log format.
 
     Args:
-        target_unit:      Unit object (infantry). alive_df and cas_df are
-                          updated in-place.
-        cover_level:      0-3 — must match a row in artillery_table.
-        shells_cnt:       Number of shells in the salvo.
-        weapon:           Weapon type string matching artillery_table['weapon'].
-        artillery_table:  DataFrame with columns:
-                          weapon, cover, killed, heavy, light, accuracy.
+        target_unit:     Unit object (infantry). alive_df and cas_df updated in-place.
+        cover_level:     0-3 — must match a row in artillery_table.
+        shells_cnt:      Number of shells in the salvo.
+        weapon:          Weapon type string matching artillery_table['weapon'].
+        artillery_table: DataFrame with columns: weapon, cover, killed, heavy, light, accuracy.
+        logs:            Optional. Pass either:
+                           - an object with a .logs attribute (e.g. EngagementResult /
+                             battle_result) — its .logs is updated IN PLACE, just like
+                             target_unit is mutated;
+                           - or a plain pd.DataFrame — the updated copy is returned
+                             under key 'logs' in the result dict.
+        current_time:    Timestamp / datetime for the log row.
 
     Returns:
-        dict with keys 'killed', 'heavy', 'light' (integer counts).
+        dict with keys:
+            'killed', 'heavy', 'light' — integer casualty counts.
+            'logs'                      — updated log DataFrame (only present when a
+                                          plain DataFrame was passed as logs).
     """
 
     # ------------------------------------------------------------------
@@ -174,7 +240,7 @@ def artillery_strike(
         target_unit.alive_df = alive_df[~cas_mask].reset_index(drop=True)
 
     # ------------------------------------------------------------------
-    # 8. Build and print summary
+    # 8. Build summary counts and print
     # ------------------------------------------------------------------
     counts: dict[str, int] = {"killed": 0, "heavy": 0, "light": 0}
     for st in soldier_status.values():
@@ -186,4 +252,30 @@ def artillery_strike(
         f"killed={counts['killed']}, heavy={counts['heavy']}, light={counts['light']} "
         f"| alive after={len(target_unit.alive_df)}"
     )
+
+    # ------------------------------------------------------------------
+    # 9. Append log row
+    # ------------------------------------------------------------------
+    if logs is not None and current_time is not None:
+        initiator  = "blue" if target_unit.side == "red" else "red"
+        total_cas  = counts["killed"] + counts["heavy"] + counts["light"]
+
+        log_row = _build_arty_log_row(
+            current_time=current_time,
+            initiator=initiator,
+            weapon=weapon,
+            shells_cnt=shells_cnt,
+            total_cas=total_cas,
+            target_unit_id=target_unit.unit_id,
+            target_side=target_unit.side,
+        )
+
+        if hasattr(logs, "logs"):
+            # Object with .logs attribute (e.g. EngagementResult / battle_result)
+            # — mutate in place, same as target_unit is mutated
+            logs.logs = pd.concat([logs.logs, log_row], ignore_index=True)
+        else:
+            # Plain DataFrame — return updated copy in result dict
+            counts["logs"] = pd.concat([logs, log_row], ignore_index=True)
+
     return counts

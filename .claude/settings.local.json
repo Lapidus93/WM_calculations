@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import wm_unit; print\\('OK — wm_unit imported'\\)\")",
+      "PowerShell(Get-Command python3, py -ErrorAction SilentlyContinue)"
+    ]
+  }
+}
