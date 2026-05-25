@@ -14,9 +14,42 @@ def calculate_force(force):
         casualties += len(i.cas_df)
     return available_force,casualties
 
-def next_turn(current_time):
+def next_turn(current_time, side_a=None, side_b=None):
+    """Advance time by 15 min and run evacuation die-rolls for heavy casualties.
+
+    Args:
+        current_time: datetime — current game time.
+        side_a:       list of Unit (player side). Pass [] or omit to skip.
+        side_b:       list of Unit (enemy side).  Pass [] or omit to skip.
+
+    Returns:
+        Updated current_time (datetime).
+    """
     current_time += timedelta(minutes=15)
     print(current_time)
+
+    if side_a is None:
+        side_a = []
+    if side_b is None:
+        side_b = []
+
+    def _check_heavy(units, side_name):
+        died = 0
+        for unit in units:
+            if unit.cas_df is None or unit.cas_df.empty:
+                continue
+            heavy_idx = unit.cas_df.index[unit.cas_df["status"] == "heavy"]
+            for idx in heavy_idx:
+                if random.randint(1, 6) == 1:
+                    unit.cas_df.loc[idx, "status"] = "died_from_injury"
+                    died += 1
+        if died:
+            print(f"  {side_name}: умерли от ранений — {died}")
+        return died
+
+    _check_heavy(side_a, "Сторона A (player)")
+    _check_heavy(side_b, "Сторона B (enemy)")
+
     return current_time
 
 
@@ -85,6 +118,95 @@ def create_mech(inf_name,ls,arm_name,armor_cnt,side):
     inf.armor_part = arm
     inf.update_current_type()
     return inf, arm
+
+
+# ---------------------------------------------------------------------------
+# Enemy AI — event generator (contact resolution)
+# ---------------------------------------------------------------------------
+
+def determine_enemy_size(
+    deep_level: int,
+    enemy_size: str,
+    who_is_contact: pd.DataFrame,
+) -> str | None:
+    """Roll d20 to determine which enemy unit type is encountered.
+
+    Args:
+        deep_level:      Player penetration depth (1/2/3).
+        enemy_size:      Zone size — 'BT', 'CM', or 'PT'.
+        who_is_contact:  DataFrame loaded from Google Sheets tab 'who_is_contact'.
+                         Columns: deep_level, BT, CM, PT, result, ...
+
+    Returns:
+        Enemy unit type string (value from 'result' column), or None if no contact.
+    """
+    enemy_size = enemy_size.upper()
+
+    if enemy_size not in ("BT", "CM", "PT"):
+        print(f"[determine_enemy_size] Неверный enemy_size='{enemy_size}'. Используй BT, CM или PT.")
+        return None
+
+    rows = who_is_contact[who_is_contact["deep_level"] == deep_level]
+    if rows.empty:
+        print(f"[determine_enemy_size] Нет строк для deep_level={deep_level}.")
+        return None
+
+    dice = random.randint(1, 20)
+    print(f"  Бросок d20: {dice}")
+
+    for _, row in rows.iterrows():
+        threshold = int(row[enemy_size])
+        if dice <= threshold:
+            result = row["result"]
+            print(f"  Противник: {result}")
+            return result
+
+    print("  Нет результата (промах)")
+    return None
+
+
+def get_enemy_action(
+    deep_level: int,
+    zone_size: str,
+    enemy_unit: str,
+    enemy_action: pd.DataFrame,
+) -> dict:
+    """Roll d20 to determine what the encountered enemy does.
+
+    Args:
+        deep_level:   Player penetration depth (1/2/3).
+        zone_size:    Zone size ('BT', 'CM', 'PT').
+        enemy_unit:   Enemy unit type (result from determine_enemy_size).
+        enemy_action: DataFrame loaded from Google Sheets tab 'enemy_action'.
+                      Columns: глубина, в зоне, кто враг, засада, обстрел,
+                               подкрепления, контратака.
+
+    Returns:
+        dict with keys: 'dice', 'action', 'row'.
+        'action' is one of: 'засада', 'обстрел', 'подкрепления', 'контратака',
+        or 'нет действия'.
+    """
+    row = enemy_action[
+        (enemy_action["глубина"] == deep_level) &
+        (enemy_action["в зоне"] == zone_size) &
+        (enemy_action["кто враг"] == enemy_unit)
+    ]
+
+    if row.empty:
+        print(f"[get_enemy_action] Нет строки для deep={deep_level} zone={zone_size} enemy={enemy_unit}")
+        return {"dice": None, "action": "нет данных", "row": {}}
+
+    row = row.iloc[0]
+    dice = random.randint(1, 20)
+
+    for action in ("засада", "обстрел", "подкрепления", "контратака"):
+        threshold = int(row[action])
+        if threshold > 0 and dice <= threshold:
+            print(f"  Действие врага: {action} (бросок {dice} ≤ {threshold})")
+            return {"dice": dice, "action": action, "row": row.to_dict()}
+
+    print(f"  Действие врага: нет действия (бросок {dice})")
+    return {"dice": dice, "action": "нет действия", "row": row.to_dict()}
 
 
 # ---------------------------------------------------------------------------

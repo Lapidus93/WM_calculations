@@ -1,13 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Tuple
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple
 import math
 import random
 
 import pandas as pd
 
 from wm_unit import Unit
+
+
+# ---------------------------------------------------------------------------
+# Log schema — единое место для всех модулей
+# ---------------------------------------------------------------------------
+GROUND_LOG_COLUMNS: List[str] = [
+    "current_time",
+    "initiator",
+    "log_blue_id",
+    "log_blue_type",
+    "log_blue_inf_force",
+    "log_blue_arm_force",
+    "log_blue_cas_inf",
+    "log_blue_cas_armor",
+    "log_red_id",
+    "log_red_type",
+    "log_red_inf_force",
+    "log_red_arm_force",
+    "log_red_cas_inf",
+    "log_red_cas_armor",
+    "log_attack_type",
+    "log_result",
+]
 
 
 @dataclass
@@ -58,9 +82,20 @@ class GroundEngine:
     - splits base_attack logic into small resolvers.
     """
 
-    def __init__(self, rng: Optional[random.Random] = None, injury_table=None):
+    def __init__(
+        self,
+        rng: Optional[random.Random] = None,
+        injury_table=None,
+        contact_chance=None,
+        who_is_contact=None,
+        enemy_action=None,
+    ):
         self.rng = rng or random.Random()
-        self.injury_table = injury_table
+        self.injury_table   = injury_table
+        self.contact_chance = contact_chance
+        self.who_is_contact = who_is_contact
+        self.enemy_action   = enemy_action
+        self.logs: pd.DataFrame = pd.DataFrame(columns=GROUND_LOG_COLUMNS)
 
     # ------------------------------------------------------------------
     # Public API
@@ -102,6 +137,146 @@ class GroundEngine:
         result.attacker.update_current_type()
         result.defender.update_current_type()
         return result
+
+    def run_battle(
+        self,
+        attacker: Unit,
+        defender: Unit,
+        current_time=None,
+        attacker_cover: int = 0,
+        defender_cover: int = 0,
+        attacker_elevation: int = 0,
+        defender_elevation: int = 0,
+        distance: int = 0,
+        defender_returns_fire: bool = True,
+        attacker_berserk: bool = False,
+        defender_berserk: bool = False,
+        armor_is_moving: bool = False,
+        armor_is_far: bool = False,
+    ) -> "EngagementResult":
+        """Shortcut: build BattleContext, run engagement, update self.logs.
+
+        Usage:
+            result = engine.run_battle(pc1, ec1, current_time=t, defender_cover=2)
+            engine.logs   # all battle rows including artillery (if logs=engine was passed)
+        """
+        if current_time is None:
+            current_time = datetime.now()
+
+        context = BattleContext(
+            attacker_cover=attacker_cover,
+            defender_cover=defender_cover,
+            attacker_elevation=attacker_elevation,
+            defender_elevation=defender_elevation,
+            distance=distance,
+            defender_returns_fire=defender_returns_fire,
+            attacker_berserk=attacker_berserk,
+            defender_berserk=defender_berserk,
+            armor_is_moving=armor_is_moving,
+            armor_is_far=armor_is_far,
+        )
+
+        result = self.resolve_engagement(
+            attacker=attacker,
+            defender=defender,
+            context=context,
+            logs=self.logs,
+            current_time=current_time,
+        )
+        self.logs = result.logs
+        return result
+
+    def reset_logs(self) -> None:
+        """Clear the accumulated battle log."""
+        self.logs = pd.DataFrame(columns=GROUND_LOG_COLUMNS)
+
+    def check_enemy_contact(
+        self,
+        deep_level: int,
+        position: int,
+        zone_size: str,
+    ) -> dict:
+        """Roll d20 for enemy contact and resolve the full event if contact occurs.
+
+        Uses tables stored at __init__ time:
+            self.contact_chance, self.who_is_contact, self.enemy_action.
+
+        Args:
+            deep_level:  Penetration depth — 1 (shallow) / 2 (medium) / 3 (deep).
+            position:    0 = moving / 1 = in defence.
+            zone_size:   Zone size — 'BT' (battalion) / 'CM' (company) / 'PT' (platoon).
+
+        Returns:
+            dict:
+                'contact'       — bool
+                'dice'          — int  (the d20 roll)
+                'threshold'     — int  (contact threshold from table)
+                'enemy_type'    — str | None  (e.g. 'PT', 'SQ', 'BT')
+                'action'        — str | None  (e.g. 'засада', 'обстрел', 'нет действия')
+                'action_detail' — dict | None (full row from enemy_action)
+
+        Usage:
+            engine = GroundEngine(
+                injury_table=injury_table,
+                contact_chance=contact_chance,
+                who_is_contact=who_is_contact,
+                enemy_action=enemy_action,
+            )
+            event = engine.check_enemy_contact(deep_level=2, position=1, zone_size='BT')
+            if event['contact']:
+                print(event['action'])
+        """
+        from wm_tac_ops import determine_enemy_size, get_enemy_action
+
+        no_contact = {
+            "contact": False,
+            "dice": None,
+            "threshold": None,
+            "enemy_type": None,
+            "action": None,
+            "action_detail": None,
+        }
+
+        if self.contact_chance is None:
+            raise RuntimeError(
+                "GroundEngine: contact_chance table not set. "
+                "Pass contact_chance=... to GroundEngine()."
+            )
+
+        zone_size = zone_size.upper()
+
+        contact_row = self.contact_chance[
+            (self.contact_chance["deep_level"] == deep_level) &
+            (self.contact_chance["position"]   == position)
+        ]
+        if contact_row.empty:
+            print(
+                f"[check_enemy_contact] No row for deep_level={deep_level}, "
+                f"position={position}"
+            )
+            return no_contact
+
+        threshold = int(contact_row.iloc[0][zone_size])
+        dice = self.rng.randint(1, 20)
+        print(f"Бросок контакта: {dice} / порог: {threshold}")
+
+        if dice >= threshold:
+            print("Контакта нет")
+            return {**no_contact, "dice": dice, "threshold": threshold}
+
+        print("КОНТАКТ!")
+
+        enemy_type = determine_enemy_size(deep_level, zone_size, self.who_is_contact)
+        act = get_enemy_action(deep_level, zone_size, enemy_type, self.enemy_action)
+
+        return {
+            "contact": True,
+            "dice": dice,
+            "threshold": threshold,
+            "enemy_type": enemy_type,
+            "action": act["action"],
+            "action_detail": act,
+        }
 
     # ------------------------------------------------------------------
     # Context
@@ -645,3 +820,91 @@ class GroundEngine:
             defender_inf_losses=defender_inf_losses,
             pre_battle_snapshot=pre_battle_snapshot,
         )
+
+
+# ---------------------------------------------------------------------------
+# Standalone factory — create temporary combat Unit objects
+# ---------------------------------------------------------------------------
+
+def create_ground_unit(
+    unit_id: str,
+    side: str = "blue",
+    inf_df: Optional[pd.DataFrame] = None,
+    armor_df: Optional[pd.DataFrame] = None,
+) -> Unit:
+    """Universal constructor for ground-level combat units.
+
+    Variants:
+        inf_df only        → infantry unit
+        armor_df only      → pure armor unit
+        inf_df + armor_df  → mechanised unit
+
+    Missing columns (power, inf_kills, apc_kills, type, transport) are added
+    with sensible defaults so callers don't have to prepare them manually.
+    """
+    if inf_df is None and armor_df is None:
+        raise ValueError("Нужен хотя бы один из: inf_df, armor_df")
+
+    # ── INF prep ──────────────────────────────────────────────────────
+    if inf_df is not None:
+        inf_df = inf_df.copy().reset_index(drop=True)
+        for col, default in [("power", 1), ("inf_kills", 0), ("apc_kills", 0)]:
+            if col not in inf_df.columns:
+                inf_df[col] = default
+
+    # ── ARMOR prep ────────────────────────────────────────────────────
+    if armor_df is not None:
+        armor_df = armor_df.copy().reset_index(drop=True)
+        for col, default in [
+            ("power", 8), ("type", "apc"), ("transport", 9),
+            ("inf_kills", 0), ("apc_kills", 0),
+        ]:
+            if col not in armor_df.columns:
+                armor_df[col] = default
+
+    # ── Pure ARMOR ────────────────────────────────────────────────────
+    if inf_df is None:
+        arm = Unit(
+            unit_id=unit_id,
+            overall_type="arm",
+            personal_type="arm",
+            alive_df=armor_df,
+            cas_df=pd.DataFrame(columns=armor_df.columns),
+            side=side,
+        )
+        arm.size = "ARMOR"
+        return arm
+
+    # ── Pure INF ──────────────────────────────────────────────────────
+    if armor_df is None:
+        return Unit(
+            unit_id=unit_id,
+            overall_type="inf",
+            personal_type="inf",
+            alive_df=inf_df,
+            cas_df=pd.DataFrame(columns=inf_df.columns),
+            side=side,
+        )
+
+    # ── MECH (inf + armor) ────────────────────────────────────────────
+    armor_part = Unit(
+        unit_id=unit_id + "_ARM",
+        overall_type="arm",
+        personal_type="arm",
+        alive_df=armor_df,
+        cas_df=pd.DataFrame(columns=armor_df.columns),
+        side=side,
+    )
+    armor_part.size = "ARMOR"
+
+    mech = Unit(
+        unit_id=unit_id,
+        overall_type="inf",
+        personal_type="inf",
+        alive_df=inf_df,
+        cas_df=pd.DataFrame(columns=inf_df.columns),
+        side=side,
+    )
+    mech.armor_part = armor_part
+    mech.update_current_type()   # → "mech"
+    return mech
