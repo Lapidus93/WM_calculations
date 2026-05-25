@@ -85,3 +85,100 @@ def create_mech(inf_name,ls,arm_name,armor_cnt,side):
     inf.armor_part = arm
     inf.update_current_type()
     return inf, arm
+
+
+# ---------------------------------------------------------------------------
+# AI Artillery Decision Engine
+# ---------------------------------------------------------------------------
+
+def ai_arty_decide(
+    assets: list,
+    deep_level: int,
+    active_contacts: int,
+    current_turn: int,
+    ai_arty_table: pd.DataFrame,
+    total_turns: int = 8,
+) -> list:
+    """Decide which enemy artillery assets fire this turn.
+
+    Each asset that fires expends exactly ONE salvo this turn.
+    Multiple different assets can fire simultaneously.
+
+    Args:
+        assets:          List of dicts, e.g.:
+                           [{'weapon': 'rocket', 'salvos_left': 1, 'shells_per_salvo': 1},
+                            {'weapon': 'mlrs',   'salvos_left': 3, 'shells_per_salvo': 40}]
+                         The function does NOT mutate this list — caller decrements salvos_left.
+        deep_level:      Player penetration depth: 1 (shallow), 2 (medium), 3 (deep).
+        active_contacts: Number of ongoing engagements between player and enemy units.
+        current_turn:    Current game turn within the phase (1-based).
+        ai_arty_table:   DataFrame with columns: deep_level, has_contact, fire_d20, max_assets.
+                         Loaded from Google Sheets tab 'ai_arty_decision'.
+        total_turns:     Number of turns in the phase (default 8).
+
+    Returns:
+        List of asset dicts selected to fire this turn (subset of input assets).
+        Each selected asset fires one salvo (shells_per_salvo shells).
+
+    Balance table reference (ai_arty_decision sheet):
+        deep_level | has_contact | fire_d20 | max_assets
+             1     |      0      |    0     |     0      # never without contact
+             1     |      1      |    5     |     1      # 25%, 1 asset, conservative
+             2     |      0      |    3     |     1      # 15%, rare, 1 asset
+             2     |      1      |    9     |     2      # 45%, up to 2 assets
+             3     |      0      |    13    |     2      # 65%, aggressive
+             3     |      1      |    19    |    99      # 95%, all assets
+    """
+    # 1. Determine has_contact flag
+    has_contact = 1 if active_contacts > 0 else 0
+
+    # 2. Look up balance row
+    row = ai_arty_table[
+        (ai_arty_table["deep_level"] == deep_level) &
+        (ai_arty_table["has_contact"] == has_contact)
+    ]
+    if row.empty:
+        print(f"[ai_arty_decide] No table row for deep_level={deep_level}, has_contact={has_contact}")
+        return []
+
+    fire_d20   = int(row.iloc[0]["fire_d20"])
+    max_assets = int(row.iloc[0]["max_assets"])
+
+    # 3. Pacing correction — deep_level 2 only: spread salvos across the phase
+    #    If fewer total salvos remain than turns left → slow down (reduce threshold)
+    if deep_level == 2:
+        turns_left   = max(1, total_turns - current_turn + 1)
+        total_salvos = sum(a["salvos_left"] for a in assets)
+        if total_salvos > 0 and total_salvos < turns_left:
+            # more turns than salvos → scale down threshold to conserve
+            fire_d20 = int(fire_d20 * total_salvos / turns_left)
+
+    # 4. Filter to assets that still have ammo
+    available = [a for a in assets if a.get("salvos_left", 0) > 0]
+    if not available or fire_d20 == 0:
+        return []
+
+    # 5. Roll d20 per asset; collect candidates
+    random.shuffle(available)   # randomise order so no asset gets priority by position
+    candidates = []
+    for asset in available:
+        if random.randint(1, 20) <= fire_d20:
+            candidates.append(asset)
+
+    # 6. Cap by max_assets
+    selected = candidates[:max_assets]
+
+    # 7. Print summary
+    if selected:
+        names = ", ".join(a["weapon"] for a in selected)
+        print(
+            f"  [ИИ арта] ход {current_turn} | deep={deep_level} contact={has_contact} "
+            f"| fire_d20={fire_d20} | стреляют: {names}"
+        )
+    else:
+        print(
+            f"  [ИИ арта] ход {current_turn} | deep={deep_level} contact={has_contact} "
+            f"| fire_d20={fire_d20} | тишина"
+        )
+
+    return selected
