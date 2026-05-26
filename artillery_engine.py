@@ -46,8 +46,13 @@ def _build_arty_log_row(
     total_cas: int,
     target_unit_id: str,
     target_side: str,
+    cover_level: int = 0,
 ) -> pd.DataFrame:
-    """Build a single-row DataFrame in the standard battle log format."""
+    """Build a single-row DataFrame in the standard battle log format.
+
+    cover_level is stored in log_result so analysts can filter by target cover.
+    Both cas_inf fields are always numeric (0 for the non-targeted side).
+    """
     if initiator == "blue":
         # blue fires at red — weapon/shells in blue columns, cas+id in red columns
         row = {
@@ -57,7 +62,7 @@ def _build_arty_log_row(
             "log_blue_type":      weapon,
             "log_blue_inf_force": shells_cnt,
             "log_blue_arm_force": "",
-            "log_blue_cas_inf":   "",
+            "log_blue_cas_inf":   0,
             "log_blue_cas_armor": "",
             "log_red_id":         target_unit_id,
             "log_red_type":       "",
@@ -66,7 +71,7 @@ def _build_arty_log_row(
             "log_red_cas_inf":    total_cas,
             "log_red_cas_armor":  "",
             "log_attack_type":    "art_air_fire",
-            "log_result":         "",
+            "log_result":         cover_level,
         }
     else:
         # red fires at blue — weapon/shells in red columns, cas+id in blue columns
@@ -83,10 +88,10 @@ def _build_arty_log_row(
             "log_red_type":       weapon,
             "log_red_inf_force":  shells_cnt,
             "log_red_arm_force":  "",
-            "log_red_cas_inf":    "",
+            "log_red_cas_inf":    0,
             "log_red_cas_armor":  "",
             "log_attack_type":    "art_air_fire",
-            "log_result":         "",
+            "log_result":         cover_level,
         }
     return pd.DataFrame([row])
 
@@ -268,6 +273,7 @@ def artillery_strike(
             total_cas=total_cas,
             target_unit_id=target_unit.unit_id,
             target_side=target_unit.side,
+            cover_level=cover_level,
         )
 
         if hasattr(logs, "logs"):

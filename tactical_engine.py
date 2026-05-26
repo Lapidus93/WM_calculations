@@ -8,11 +8,28 @@ import pandas as pd
 
 from force_manager import ForceManager
 from ground_engine import GroundEngine, BattleContext
+from artillery_engine import artillery_strike
 
 
-def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
+def tact_battle(
+    files,
+    player_data,
+    enemy_data,
+    other_data,
+    injury_table=None,
+    artillery_table=None,
+    player_arty_assets=None,
+    enemy_arty_assets=None,
+):
 
     print('start')
+
+    # ── Валидация арт-ассетов ────────────────────────────────────────
+    if (player_arty_assets or enemy_arty_assets) and artillery_table is None:
+        raise ValueError(
+            "tact_battle: передали arty_assets, но artillery_table=None. "
+            "Загрузи artillery_table из Google Sheets и передай в функцию."
+        )
 
     TIME_STEP_MINUTES = 15
 
@@ -74,8 +91,12 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
         'blue_defeats',
         'draws_or_other',
         'blue_cas_inf_total',
+        'blue_cas_inf_ground',
+        'blue_cas_inf_arty',
         'blue_cas_armor_total',
         'red_cas_inf_total',
+        'red_cas_inf_ground',
+        'red_cas_inf_arty',
         'red_cas_armor_total',
     ]
 
@@ -180,6 +201,45 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
                 defender_berserk=False,
             )
 
+        def _fire_artillery_phase(self, firing_assets, target_units, cover_range, phase_time):
+            """Fire every salvo in firing_assets at random alive targets.
+
+            Args:
+                firing_assets: list of asset dicts, e.g.:
+                               [{'weapon': 'mortar', 'salvos_left': 3, 'shells_per_salvo': 5}]
+                               salvos_left is NOT mutated — caller manages ammo state.
+                target_units:  list of enemy Unit objects to pick targets from.
+                cover_range:   (min, max) — random cover level for each target.
+                phase_time:    datetime timestamp for the log rows.
+            """
+            if not firing_assets:
+                return
+            alive = self._alive_units(target_units)
+            if not alive:
+                return
+
+            for asset in firing_assets:
+                for _ in range(asset.get('salvos_left', 0)):
+                    target = random.choice(alive)
+                    cover  = random.randint(*cover_range)
+                    arty_result = artillery_strike(
+                        target_unit=target,
+                        cover_level=cover,
+                        shells_cnt=asset['shells_per_salvo'],
+                        weapon=asset['weapon'],
+                        artillery_table=artillery_table,
+                        logs=self.logs,
+                        current_time=phase_time,
+                    )
+                    # artillery_strike returns updated df in 'logs' key
+                    # when given a plain DataFrame (not an object with .logs)
+                    if 'logs' in arty_result:
+                        self.logs = arty_result['logs']
+                    # refresh alive list — target may have been wiped out
+                    alive = self._alive_units(target_units)
+                    if not alive:
+                        break
+
         def build_forces(self):
             player_units, player_plan = self.player_manager.generate_ground_units_with_armor(
                 level=PLAYER_LEVEL,
@@ -221,37 +281,66 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
             self.unit_next_time[defender.unit_id] = next_time
 
         @staticmethod
-        def _build_overall_stats(summary_df: pd.DataFrame) -> pd.DataFrame:
+        def _build_overall_stats(summary_df: pd.DataFrame, logs_df: pd.DataFrame) -> pd.DataFrame:
+            # ── Потери от артиллерии — из ground_log ────────────────────
+            arty_rows = logs_df[logs_df["log_attack_type"] == "art_air_fire"]
+            blue_arty = int(
+                pd.to_numeric(arty_rows["log_blue_cas_inf"], errors="coerce").fillna(0).sum()
+            )
+            red_arty = int(
+                pd.to_numeric(arty_rows["log_red_cas_inf"], errors="coerce").fillna(0).sum()
+            )
+
             if len(summary_df) == 0:
                 return pd.DataFrame([{
                     "total_battles": 0,
                     "blue_victories": 0,
                     "blue_defeats": 0,
                     "draws_or_other": 0,
-                    "blue_cas_inf_total": 0,
+                    "blue_cas_inf_total": blue_arty,
+                    "blue_cas_inf_ground": 0,
+                    "blue_cas_inf_arty": blue_arty,
                     "blue_cas_armor_total": 0,
-                    "red_cas_inf_total": 0,
+                    "red_cas_inf_total": red_arty,
+                    "red_cas_inf_ground": 0,
+                    "red_cas_inf_arty": red_arty,
                     "red_cas_armor_total": 0,
                 }])
 
             result_series = summary_df["result"].astype(str)
             blue_victories = int(result_series.isin(WIN_RESULTS).sum())
-            blue_defeats = int(result_series.isin(LOSS_RESULTS).sum())
+            blue_defeats   = int(result_series.isin(LOSS_RESULTS).sum())
+            blue_ground    = int(summary_df["blue_cas_inf"].sum())
+            red_ground     = int(summary_df["red_cas_inf"].sum())
 
             return pd.DataFrame([{
-                "total_battles": int(len(summary_df)),
-                "blue_victories": blue_victories,
-                "blue_defeats": blue_defeats,
-                "draws_or_other": int(len(summary_df) - blue_victories - blue_defeats),
-                "blue_cas_inf_total": int(summary_df["blue_cas_inf"].sum()),
+                "total_battles":      int(len(summary_df)),
+                "blue_victories":     blue_victories,
+                "blue_defeats":       blue_defeats,
+                "draws_or_other":     int(len(summary_df) - blue_victories - blue_defeats),
+                "blue_cas_inf_total": blue_ground + blue_arty,
+                "blue_cas_inf_ground": blue_ground,
+                "blue_cas_inf_arty":   blue_arty,
                 "blue_cas_armor_total": int(summary_df["blue_cas_armor"].sum()),
-                "red_cas_inf_total": int(summary_df["red_cas_inf"].sum()),
+                "red_cas_inf_total":   red_ground + red_arty,
+                "red_cas_inf_ground":  red_ground,
+                "red_cas_inf_arty":    red_arty,
                 "red_cas_armor_total": int(summary_df["red_cas_armor"].sum()),
             }])
 
         def run(self):
             player_units, enemy_units, player_plan, enemy_plan = self.build_forces()
             self._initialize_unit_times(player_units, enemy_units)
+
+            # ── Артиллерийская фаза (до наземных боёв) ──────────────────
+            arty_time = START_TIME
+            self._fire_artillery_phase(
+                player_arty_assets, enemy_units, ENEMY_COVER_RANGE, arty_time
+            )
+            self._fire_artillery_phase(
+                enemy_arty_assets, player_units, PLAYER_COVER_RANGE, arty_time
+            )
+            # ────────────────────────────────────────────────────────────
 
             battle_count = random.randint(MIN_BATTLES, MAX_BATTLES)
             tactical_summary = []
@@ -312,20 +401,25 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
             self.enemy_manager.save_to_excel(ENEMY_OUTPUT_FILE)
 
             summary_df = pd.DataFrame(tactical_summary)
-            overall_stats_df = self._build_overall_stats(summary_df)
+            overall_stats_df = self._build_overall_stats(summary_df, self.logs)
 
+            s = overall_stats_df.iloc[0]
             tactical_log_df = pd.DataFrame([{
-                'tactical_buttle_num': TACTICAL_BUTTLE_NUM,
-                'time': TACTICAL_BATTLE_TIME,
-                'comment': TACTICAL_COMMENT,
-                'total_battles': int(overall_stats_df.iloc[0]['total_battles']),
-                'blue_victories': int(overall_stats_df.iloc[0]['blue_victories']),
-                'blue_defeats': int(overall_stats_df.iloc[0]['blue_defeats']),
-                'draws_or_other': int(overall_stats_df.iloc[0]['draws_or_other']),
-                'blue_cas_inf_total': int(overall_stats_df.iloc[0]['blue_cas_inf_total']),
-                'blue_cas_armor_total': int(overall_stats_df.iloc[0]['blue_cas_armor_total']),
-                'red_cas_inf_total': int(overall_stats_df.iloc[0]['red_cas_inf_total']),
-                'red_cas_armor_total': int(overall_stats_df.iloc[0]['red_cas_armor_total']),
+                'tactical_buttle_num':  TACTICAL_BUTTLE_NUM,
+                'time':                 TACTICAL_BATTLE_TIME,
+                'comment':              TACTICAL_COMMENT,
+                'total_battles':        int(s['total_battles']),
+                'blue_victories':       int(s['blue_victories']),
+                'blue_defeats':         int(s['blue_defeats']),
+                'draws_or_other':       int(s['draws_or_other']),
+                'blue_cas_inf_total':   int(s['blue_cas_inf_total']),
+                'blue_cas_inf_ground':  int(s['blue_cas_inf_ground']),
+                'blue_cas_inf_arty':    int(s['blue_cas_inf_arty']),
+                'blue_cas_armor_total': int(s['blue_cas_armor_total']),
+                'red_cas_inf_total':    int(s['red_cas_inf_total']),
+                'red_cas_inf_ground':   int(s['red_cas_inf_ground']),
+                'red_cas_inf_arty':     int(s['red_cas_inf_arty']),
+                'red_cas_armor_total':  int(s['red_cas_armor_total']),
             }], columns=TACTICAL_LOG_COLUMNS)
 
             ground_log_df = self.logs.copy()
@@ -379,19 +473,32 @@ def tact_battle(files, player_data, enemy_data, other_data, injury_table=None):
 
     def print_short_summary(result_bundle: dict):
         overall_stats = result_bundle['overall_stats']
-        stats = overall_stats.iloc[0]
+        s = overall_stats.iloc[0]
+
+        blue_total  = int(s['blue_cas_inf_total'])
+        blue_ground = int(s['blue_cas_inf_ground'])
+        blue_arty   = int(s['blue_cas_inf_arty'])
+        red_total   = int(s['red_cas_inf_total'])
+        red_ground  = int(s['red_cas_inf_ground'])
+        red_arty    = int(s['red_cas_inf_arty'])
 
         print('=' * 60)
         print(f"Тактическая битва #{TACTICAL_BUTTLE_NUM}")
-        print(f"Проведено наземных боёв: {int(stats['total_battles'])}")
+        print(f"Проведено наземных боёв: {int(s['total_battles'])}")
         print('-' * 60)
         print(
             'Общая статистика | '
-            f"победы blue: {int(stats['blue_victories'])} | "
-            f"поражения blue: {int(stats['blue_defeats'])} | "
-            f"прочее: {int(stats['draws_or_other'])} | "
-            f"потери blue: {int(stats['blue_cas_inf_total'])} inf / {int(stats['blue_cas_armor_total'])} arm | "
-            f"потери red: {int(stats['red_cas_inf_total'])} inf / {int(stats['red_cas_armor_total'])} arm"
+            f"победы blue: {int(s['blue_victories'])} | "
+            f"поражения blue: {int(s['blue_defeats'])} | "
+            f"прочее: {int(s['draws_or_other'])}"
+        )
+        print(
+            f"  потери blue inf: {blue_total} всего / {blue_ground} в боях / {blue_arty} от арты"
+            f"  | armor: {int(s['blue_cas_armor_total'])}"
+        )
+        print(
+            f"  потери red  inf: {red_total} всего / {red_ground} в боях / {red_arty} от арты"
+            f"  | armor: {int(s['red_cas_armor_total'])}"
         )
 
     runner = TacticalArmorTestRunner(PLAYER_FILE, ENEMY_FILE, injury_table=injury_table)
