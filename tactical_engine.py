@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from force_manager import ForceManager
-from ground_engine import GroundEngine, BattleContext
+from ground_engine import GroundEngine, BattleContext, GROUND_LOG_COLUMNS
 from artillery_engine import artillery_strike
 
 
@@ -18,6 +18,7 @@ def tact_battle(
     other_data,
     injury_table=None,
     artillery_table=None,
+    arty_usage=None,
     player_arty_assets=None,
     enemy_arty_assets=None,
 ):
@@ -29,6 +30,11 @@ def tact_battle(
         raise ValueError(
             "tact_battle: передали arty_assets, но artillery_table=None. "
             "Загрузи artillery_table из Google Sheets и передай в функцию."
+        )
+    if (player_arty_assets or enemy_arty_assets) and arty_usage is None:
+        raise ValueError(
+            "tact_battle: передали arty_assets, но arty_usage=None. "
+            "Загрузи лист 'arty_usage' из Google Sheets и передай в функцию."
         )
 
     TIME_STEP_MINUTES = 15
@@ -201,44 +207,88 @@ def tact_battle(
                 defender_berserk=False,
             )
 
-        def _fire_artillery_phase(self, firing_assets, target_units, cover_range, phase_time):
-            """Fire every salvo in firing_assets at random alive targets.
+        @staticmethod
+        def _parse_chance(raw) -> float:
+            """Parse '80%' → 0.80, or float/int → return as float."""
+            if isinstance(raw, str):
+                return float(raw.strip().rstrip('%')) / 100
+            return float(raw)
+
+        def _fire_artillery_phase(
+            self,
+            firing_assets,
+            target_units,
+            cover_range,
+            phase_time,
+            fire_type: str = 'close',
+        ):
+            """Fire salvos in firing_assets at random alive targets.
+
+            Hit chance per salvo is looked up from arty_usage table by
+            (Type=fire_type, missions=total_salvos). Only successful rolls
+            actually call artillery_strike.
 
             Args:
-                firing_assets: list of asset dicts, e.g.:
+                firing_assets: list of asset dicts:
                                [{'weapon': 'mortar', 'salvos_left': 3, 'shells_per_salvo': 5}]
                                salvos_left is NOT mutated — caller manages ammo state.
-                target_units:  list of enemy Unit objects to pick targets from.
+                target_units:  list of Unit objects to pick targets from.
                 cover_range:   (min, max) — random cover level for each target.
                 phase_time:    datetime timestamp for the log rows.
+                fire_type:     'close' or 'distant' — row selector in arty_usage table.
             """
             if not firing_assets:
                 return
+
+            # ── Look up hit chance from arty_usage ──────────────────────
+            total_salvos = sum(a.get('salvos_left', 0) for a in firing_assets)
+            if total_salvos == 0:
+                return
+
+            if arty_usage is not None:
+                missions = min(total_salvos, 8)
+                row = arty_usage[
+                    (arty_usage['Type'] == fire_type) &
+                    (arty_usage['missions'] == missions)
+                ]
+                if row.empty:
+                    print(f"  [Арт {fire_type}] Нет строки в arty_usage для missions={missions}. Стреляем всем.")
+                    chance = 1.0
+                else:
+                    chance = self._parse_chance(row.iloc[0]['chance'])
+            else:
+                chance = 1.0   # обратная совместимость: всё попадает
+
             alive = self._alive_units(target_units)
             if not alive:
                 return
 
+            hits = 0
             for asset in firing_assets:
                 for _ in range(asset.get('salvos_left', 0)):
-                    target = random.choice(alive)
-                    cover  = random.randint(*cover_range)
-                    arty_result = artillery_strike(
-                        target_unit=target,
-                        cover_level=cover,
-                        shells_cnt=asset['shells_per_salvo'],
-                        weapon=asset['weapon'],
-                        artillery_table=artillery_table,
-                        logs=self.logs,
-                        current_time=phase_time,
-                    )
-                    # artillery_strike returns updated df in 'logs' key
-                    # when given a plain DataFrame (not an object with .logs)
-                    if 'logs' in arty_result:
-                        self.logs = arty_result['logs']
-                    # refresh alive list — target may have been wiped out
-                    alive = self._alive_units(target_units)
-                    if not alive:
-                        break
+                    if random.random() < chance:
+                        hits += 1
+                        target = random.choice(alive)
+                        cover  = random.randint(*cover_range)
+                        arty_result = artillery_strike(
+                            target_unit=target,
+                            cover_level=cover,
+                            shells_cnt=asset['shells_per_salvo'],
+                            weapon=asset['weapon'],
+                            artillery_table=artillery_table,
+                            logs=self.logs,
+                            current_time=phase_time,
+                        )
+                        if 'logs' in arty_result:
+                            self.logs = arty_result['logs']
+                        alive = self._alive_units(target_units)
+                        if not alive:
+                            break
+
+            print(
+                f"  [Арт {fire_type}] {hits}/{total_salvos} залпов попали в цель"
+                f" (chance={chance:.0%})"
+            )
 
         def build_forces(self):
             player_units, player_plan = self.player_manager.generate_ground_units_with_armor(
@@ -508,3 +558,138 @@ def tact_battle(
     print(f"- {PLAYER_OUTPUT_FILE}")
     print(f"- {ENEMY_OUTPUT_FILE}")
     print(f"- {LOG_OUTPUT_FILE}")
+
+
+# ===========================================================================
+# Distant Fire Support — артиллерия по врагу без наземного боя
+# ===========================================================================
+
+def distant_fire_support(
+    enemy_file: str,
+    enemy_data: dict,
+    fire_assets: list,
+    artillery_table: pd.DataFrame,
+    arty_usage: pd.DataFrame,
+    current_time=None,
+    target_units: int = 6,
+    injury_table=None,
+    enemy_output_file: str = None,
+) -> dict:
+    """Артиллерийский удар по вражеским позициям без наземного боя.
+
+    Дробит вражеское подразделение на target_units частей, определяет шанс
+    попадания из таблицы arty_usage (Type='distant'), стреляет успешными залпами,
+    опционально сохраняет потери обратно в Excel.
+
+    Args:
+        enemy_file:        Путь к Excel-файлу бригады врага.
+        enemy_data:        Словарь с ключами:
+                               ENEMY_LEVEL       — 'battalion' / 'company' / ...
+                               ENEMY_FORMATIONS  — список uid, например ['B3']
+                               ENEMY_COVER_RANGE — (min, max) укрытия целей
+                           Опционально: 'side' (default 'red'), 'unit_prefix' (default 'TGT')
+        fire_assets:       Список ассетов:
+                               [{'weapon': 'mortar', 'salvos_left': 5, 'shells_per_salvo': 5}]
+                           salvos_left НЕ мутируется функцией.
+        artillery_table:   DataFrame из листа 'artillery' (Google Sheets).
+        arty_usage:        DataFrame из листа 'arty_usage' (Google Sheets).
+        current_time:      Время удара (datetime) для логов.
+        target_units:      На сколько частей дробить подразделение (default 6).
+        injury_table:      Не используется — зарезервировано для совместимости.
+        enemy_output_file: Если задан — применить потери и сохранить Excel обратно.
+
+    Returns:
+        dict:
+            'hits'          — int: сколько залпов попало
+            'total_salvos'  — int: сколько залпов всего
+            'chance'        — float: шанс попадания каждого залпа
+            'logs'          — pd.DataFrame: строки ground_log этого удара
+            'sub_units'     — list[Unit]: временные юниты с учётом потерь
+            'plan'          — pd.DataFrame: как дробились подразделения
+    """
+    # ── Валидация ──────────────────────────────────────────────────────────
+    if not fire_assets:
+        raise ValueError("distant_fire_support: fire_assets пуст — нечем стрелять.")
+
+    # ── Загрузка и нарезка подразделения ──────────────────────────────────
+    enemy_manager = ForceManager.from_excel(enemy_file)
+    sub_units, plan_df = enemy_manager.generate_ground_units(
+        level=enemy_data['ENEMY_LEVEL'],
+        formation_uids=enemy_data['ENEMY_FORMATIONS'],
+        target_units=target_units,
+        side=enemy_data.get('side', 'red'),
+        unit_prefix=enemy_data.get('unit_prefix', 'TGT'),
+    )
+
+    # ── Lookup шанса из arty_usage ─────────────────────────────────────────
+    def _parse_chance(raw) -> float:
+        if isinstance(raw, str):
+            return float(raw.strip().rstrip('%')) / 100
+        return float(raw)
+
+    total_salvos = sum(a.get('salvos_left', 0) for a in fire_assets)
+    missions = min(total_salvos, 8)
+    row = arty_usage[
+        (arty_usage['Type'] == 'distant') &
+        (arty_usage['missions'] == missions)
+    ]
+    if row.empty:
+        print(f"[distant_fire_support] Нет строки в arty_usage для missions={missions}. chance=1.0")
+        chance = 1.0
+    else:
+        chance = _parse_chance(row.iloc[0]['chance'])
+
+    # ── Стрельба ───────────────────────────────────────────────────────────
+    cover_range = enemy_data.get('ENEMY_COVER_RANGE', (0, 2))
+    logs = pd.DataFrame(columns=GROUND_LOG_COLUMNS)
+    alive = [u for u in sub_units if len(u.alive_df) > 0]
+    hits = 0
+
+    for asset in fire_assets:
+        for _ in range(asset.get('salvos_left', 0)):
+            if not alive:
+                break
+            if random.random() < chance:
+                hits += 1
+                target = random.choice(alive)
+                cover  = random.randint(*cover_range)
+                arty_result = artillery_strike(
+                    target_unit=target,
+                    cover_level=cover,
+                    shells_cnt=asset['shells_per_salvo'],
+                    weapon=asset['weapon'],
+                    artillery_table=artillery_table,
+                    logs=logs,
+                    current_time=current_time,
+                )
+                if 'logs' in arty_result:
+                    logs = arty_result['logs']
+                alive = [u for u in sub_units if len(u.alive_df) > 0]
+
+    # ── Суммируем потери ───────────────────────────────────────────────────
+    arty_rows = logs[logs['log_attack_type'] == 'art_air_fire']
+    red_cas = int(
+        pd.to_numeric(arty_rows['log_red_cas_inf'], errors='coerce').fillna(0).sum()
+    )
+
+    # ── Печать результата ──────────────────────────────────────────────────
+    print('=' * 50)
+    print(f"Distant Fire Support")
+    print(f"  Залпов: {hits}/{total_salvos} попали (chance={chance:.0%})")
+    print(f"  Потери врага: {red_cas} чел. (inf)")
+    print('=' * 50)
+
+    # ── Опционально: сохраняем потери в Excel ────────────────────────────
+    if enemy_output_file is not None:
+        enemy_manager.apply_many_battle_results(sub_units)
+        enemy_manager.save_to_excel(enemy_output_file)
+        print(f"  Потери применены → {enemy_output_file}")
+
+    return {
+        'hits':         hits,
+        'total_salvos': total_salvos,
+        'chance':       chance,
+        'logs':         logs,
+        'sub_units':    sub_units,
+        'plan':         plan_df,
+    }
