@@ -11,6 +11,44 @@ from ground_engine import GroundEngine, BattleContext, GROUND_LOG_COLUMNS
 from artillery_engine import artillery_strike
 
 
+def _read_existing_sheet(path: str | Path, sheet_name: str, columns: list) -> pd.DataFrame:
+    """Читает лист из Excel, возвращает DataFrame с заданными колонками."""
+    path = Path(path)
+    if not path.exists():
+        return pd.DataFrame(columns=columns)
+    try:
+        xls = pd.ExcelFile(path)
+        if sheet_name not in xls.sheet_names:
+            return pd.DataFrame(columns=columns)
+        df = pd.read_excel(path, sheet_name=sheet_name)
+    except Exception:
+        return pd.DataFrame(columns=columns)
+    for col in columns:
+        if col not in df.columns:
+            df[col] = pd.NA
+    return df[columns].copy()
+
+
+def _append_to_existing_sheet(
+    path: str | Path,
+    sheet_name: str,
+    new_df: pd.DataFrame,
+    columns: list,
+) -> pd.DataFrame:
+    """Читает существующий лист и аппендит new_df снизу."""
+    existing_df = _read_existing_sheet(path, sheet_name, columns)
+    if new_df is None or new_df.empty:
+        return existing_df
+    prepared = new_df.copy()
+    for col in columns:
+        if col not in prepared.columns:
+            prepared[col] = pd.NA
+    prepared = prepared[columns]
+    if existing_df.empty:
+        return prepared.reset_index(drop=True)
+    return pd.concat([existing_df, prepared], ignore_index=True)
+
+
 def tact_battle(
     files,
     player_data,
@@ -108,42 +146,6 @@ def tact_battle(
 
     WIN_RESULTS = {"победа", "разгром"}
     LOSS_RESULTS = {"поражение", "засада"}
-
-    def _read_existing_sheet(path: str | Path, sheet_name: str, columns: list[str]) -> pd.DataFrame:
-        path = Path(path)
-        if not path.exists():
-            return pd.DataFrame(columns=columns)
-
-        try:
-            xls = pd.ExcelFile(path)
-            if sheet_name not in xls.sheet_names:
-                return pd.DataFrame(columns=columns)
-            df = pd.read_excel(path, sheet_name=sheet_name)
-        except Exception:
-            return pd.DataFrame(columns=columns)
-
-        for col in columns:
-            if col not in df.columns:
-                df[col] = pd.NA
-
-        return df[columns].copy()
-
-    def _append_to_existing_sheet(path: str | Path, sheet_name: str, new_df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-        existing_df = _read_existing_sheet(path, sheet_name, columns)
-
-        if new_df is None or new_df.empty:
-            return existing_df
-
-        prepared_new_df = new_df.copy()
-        for col in columns:
-            if col not in prepared_new_df.columns:
-                prepared_new_df[col] = pd.NA
-        prepared_new_df = prepared_new_df[columns]
-
-        if existing_df.empty:
-            return prepared_new_df.reset_index(drop=True)
-
-        return pd.concat([existing_df, prepared_new_df], ignore_index=True)
 
     class TacticalArmorTestRunner:
         def __init__(self, player_file: str, enemy_file: str, injury_table=None):
@@ -693,3 +695,83 @@ def distant_fire_support(
         'sub_units':    sub_units,
         'plan':         plan_df,
     }
+
+
+# ===========================================================================
+# save_ground_log — сохранить ground-уровневые бои в tactical_battle_log.xlsx
+# ===========================================================================
+
+def save_ground_log(
+    engine,
+    tactical_buttle_num: int,
+    comment: str,
+    current_time,
+    log_file: str = 'tactical_battle_log.xlsx',
+) -> None:
+    """Аппендит engine.logs в tactical_battle_log.xlsx и добавляет сводку в tactical_log.
+
+    Совместим с форматом который пишет tact_battle — те же листы и колонки.
+
+    Args:
+        engine:              GroundEngine с заполненным engine.logs.
+        tactical_buttle_num: Номер тактического боя (int).
+        comment:             Описание боя (str).
+        current_time:        Время боя (datetime).
+        log_file:            Путь к файлу лога (default 'tactical_battle_log.xlsx').
+    """
+    WIN_RESULTS  = {'победа', 'разгром'}
+    LOSS_RESULTS = {'поражение', 'засада'}
+
+    def _num(series):
+        return int(pd.to_numeric(series, errors='coerce').fillna(0).sum())
+
+    # ── Готовим ground_log ────────────────────────────────────────────────
+    ground_log = engine.logs.copy()
+    ground_log.insert(0, 'tactical_buttle_num', tactical_buttle_num)
+
+    GROUND_COLS = list(ground_log.columns)
+
+    # ── Считаем статистику ────────────────────────────────────────────────
+    ground_rows = ground_log[ground_log['log_attack_type'] != 'art_air_fire']
+    arty_rows   = ground_log[ground_log['log_attack_type'] == 'art_air_fire']
+
+    total_battles  = len(ground_rows)
+    blue_victories = int(ground_rows['log_result'].isin(WIN_RESULTS).sum())
+    blue_defeats   = int(ground_rows['log_result'].isin(LOSS_RESULTS).sum())
+
+    TACTICAL_COLS = [
+        'tactical_buttle_num', 'time', 'comment',
+        'total_battles', 'blue_victories', 'blue_defeats', 'draws_or_other',
+        'blue_cas_inf_total', 'blue_cas_inf_ground', 'blue_cas_inf_arty', 'blue_cas_armor_total',
+        'red_cas_inf_total',  'red_cas_inf_ground',  'red_cas_inf_arty',  'red_cas_armor_total',
+    ]
+
+    tactical_row = pd.DataFrame([{
+        'tactical_buttle_num': tactical_buttle_num,
+        'time':                str(current_time),
+        'comment':             comment,
+        'total_battles':       total_battles,
+        'blue_victories':      blue_victories,
+        'blue_defeats':        blue_defeats,
+        'draws_or_other':      total_battles - blue_victories - blue_defeats,
+        'blue_cas_inf_total':  _num(ground_rows['log_blue_cas_inf']) + _num(arty_rows['log_blue_cas_inf']),
+        'blue_cas_inf_ground': _num(ground_rows['log_blue_cas_inf']),
+        'blue_cas_inf_arty':   _num(arty_rows['log_blue_cas_inf']),
+        'blue_cas_armor_total': _num(ground_rows['log_blue_cas_armor']),
+        'red_cas_inf_total':   _num(ground_rows['log_red_cas_inf']) + _num(arty_rows['log_red_cas_inf']),
+        'red_cas_inf_ground':  _num(ground_rows['log_red_cas_inf']),
+        'red_cas_inf_arty':    _num(arty_rows['log_red_cas_inf']),
+        'red_cas_armor_total': _num(ground_rows['log_red_cas_armor']),
+    }])
+
+    # ── Аппендим в файл ───────────────────────────────────────────────────
+    final_ground   = _append_to_existing_sheet(log_file, 'ground_log',   ground_log,   GROUND_COLS)
+    final_tactical = _append_to_existing_sheet(log_file, 'tactical_log', tactical_row, TACTICAL_COLS)
+
+    with pd.ExcelWriter(log_file, engine='openpyxl') as writer:
+        final_tactical.to_excel(writer, sheet_name='tactical_log', index=False)
+        final_ground.to_excel(writer,   sheet_name='ground_log',   index=False)
+
+    print(f"Лог сохранён: {log_file}")
+    print(f"  ground_log:   {len(final_ground)} строк")
+    print(f"  tactical_log: {len(final_tactical)} строк")
