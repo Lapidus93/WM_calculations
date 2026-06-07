@@ -47,6 +47,7 @@ def _build_arty_log_row(
     target_unit_id: str,
     target_side: str,
     cover_level: int = 0,
+    arm_cas: int = 0,
 ) -> pd.DataFrame:
     """Build a single-row DataFrame in the standard battle log format.
 
@@ -69,7 +70,7 @@ def _build_arty_log_row(
             "log_red_inf_force":  "",
             "log_red_arm_force":  "",
             "log_red_cas_inf":    total_cas,
-            "log_red_cas_armor":  "",
+            "log_red_cas_armor":  arm_cas,
             "log_attack_type":    "art_air_fire",
             "log_result":         cover_level,
         }
@@ -83,7 +84,7 @@ def _build_arty_log_row(
             "log_blue_inf_force": "",
             "log_blue_arm_force": "",
             "log_blue_cas_inf":   total_cas,
-            "log_blue_cas_armor": "",
+            "log_blue_cas_armor": arm_cas,
             "log_red_id":         "",
             "log_red_type":       weapon,
             "log_red_inf_force":  shells_cnt,
@@ -156,25 +157,58 @@ def artillery_strike(
             f"No artillery_table row for weapon='{weapon}', cover={cover_level}"
         )
 
-    r_kill   = int(row.iloc[0]["killed"])
-    r_heavy  = int(row.iloc[0]["heavy"])
-    r_light  = int(row.iloc[0]["light"])
-    accuracy = int(row.iloc[0]["accuracy"])
+    r_kill    = int(row.iloc[0]["killed"])
+    r_heavy   = int(row.iloc[0]["heavy"])
+    r_light   = int(row.iloc[0]["light"])
+    accuracy  = int(row.iloc[0]["accuracy"])
+    r_arm_kill = int(row.iloc[0]["arm_kill"]) if "arm_kill" in row.columns else 0
 
     # ------------------------------------------------------------------
-    # 2. Validate target unit
+    # 2. Determine infantry and armor components of the target
     # ------------------------------------------------------------------
-    alive_df = target_unit.alive_df
-    if alive_df is None or alive_df.empty:
-        return {"killed": 0, "heavy": 0, "light": 0}
+    if target_unit.overall_type == "arm":
+        inf_unit   = None
+        armor_unit = target_unit
+    elif (
+        target_unit.overall_type == "mech"
+        and target_unit.armor_part not in (None, [])
+        and len(target_unit.armor_part.alive_df) > 0
+    ):
+        inf_unit   = target_unit
+        armor_unit = target_unit.armor_part
+    else:
+        inf_unit   = target_unit
+        armor_unit = None
 
-    if "soldier_uid" not in alive_df.columns:
+    # Validate that there is something to shoot at
+    inf_alive   = inf_unit is not None and inf_unit.alive_df is not None and not inf_unit.alive_df.empty
+    armor_alive = armor_unit is not None and armor_unit.alive_df is not None and not armor_unit.alive_df.empty
+
+    if not inf_alive and not armor_alive:
+        return {"killed": 0, "heavy": 0, "light": 0, "arm_killed": 0}
+
+    if inf_alive and "soldier_uid" not in inf_unit.alive_df.columns:
         raise ValueError("target_unit.alive_df must contain 'soldier_uid' column")
 
-    soldier_uids = list(alive_df["soldier_uid"])
+    # ------------------------------------------------------------------
+    # 3. Collect UIDs for both infantry and armor
+    # ------------------------------------------------------------------
+    soldier_uids = list(inf_unit.alive_df["soldier_uid"]) if inf_alive else []
+
+    # Armor UID column: prefer 'armor_id', fall back to index-based label
+    if armor_alive:
+        armor_df = armor_unit.alive_df
+        if "armor_id" in armor_df.columns:
+            armor_uids = list(armor_df["armor_id"])
+        else:
+            armor_uids = [f"__arm_{i}" for i in range(len(armor_df))]
+    else:
+        armor_uids = []
+
+    total_entities = len(soldier_uids) + len(armor_uids)
 
     # ------------------------------------------------------------------
-    # 3. Place soldiers randomly in unit_territory (no two on same cell)
+    # 4. Place all entities randomly in unit_territory (no two on same cell)
     # ------------------------------------------------------------------
     all_cells = [
         (x, y)
@@ -182,22 +216,24 @@ def artillery_strike(
         for y in range(CENTER - UNIT_HALF, CENTER + UNIT_HALF)
     ]
 
-    if len(soldier_uids) > len(all_cells):
+    if total_entities > len(all_cells):
         raise ValueError(
-            f"Too many soldiers ({len(soldier_uids)}) for unit_territory "
+            f"Too many entities ({total_entities}) for unit_territory "
             f"({len(all_cells)} cells). Increase UNIT_HALF."
         )
 
-    chosen_cells = random.sample(all_cells, len(soldier_uids))
-    positions    = dict(zip(soldier_uids, chosen_cells))
+    chosen_cells  = random.sample(all_cells, total_entities)
+    inf_positions   = dict(zip(soldier_uids, chosen_cells[:len(soldier_uids)]))
+    armor_positions = dict(zip(armor_uids,   chosen_cells[len(soldier_uids):]))
 
     # ------------------------------------------------------------------
-    # 4. Initialise per-soldier status tracker
+    # 5. Initialise status trackers
     # ------------------------------------------------------------------
     soldier_status: dict[str, str] = {uid: "alive" for uid in soldier_uids}
+    armor_status:   dict[str, str] = {uid: "alive" for uid in armor_uids}
 
     # ------------------------------------------------------------------
-    # 5. Compute damage_territory bounds
+    # 6. Compute damage_territory bounds
     # ------------------------------------------------------------------
     half_acc  = accuracy // 2
     dmg_x_min = CENTER - half_acc
@@ -206,13 +242,14 @@ def artillery_strike(
     dmg_y_max = CENTER + half_acc
 
     # ------------------------------------------------------------------
-    # 6. Fire each shell
+    # 7. Fire each shell
     # ------------------------------------------------------------------
     for _ in range(shells_cnt):
         lx = random.randint(dmg_x_min, dmg_x_max)
         ly = random.randint(dmg_y_min, dmg_y_max)
 
-        for uid, (sx, sy) in positions.items():
+        # Infantry checks
+        for uid, (sx, sy) in inf_positions.items():
             if soldier_status[uid] == "killed":
                 continue
 
@@ -225,45 +262,82 @@ def artillery_strike(
             elif dist <= r_light:
                 hit_zone = "light"
             else:
-                continue  # shell missed this soldier
+                continue
 
             soldier_status[uid] = _upgrade_status(soldier_status[uid], hit_zone)
 
-    # ------------------------------------------------------------------
-    # 7. Apply results back to target_unit
-    # ------------------------------------------------------------------
-    casualties = {uid: st for uid, st in soldier_status.items() if st != "alive"}
+        # Armor checks
+        if r_arm_kill > 0:
+            for uid, (ax, ay) in armor_positions.items():
+                if armor_status[uid] == "killed":
+                    continue
 
-    if casualties:
-        cas_mask = alive_df["soldier_uid"].isin(casualties)
-        cas_rows = alive_df[cas_mask].copy()
-        cas_rows["status"] = cas_rows["soldier_uid"].map(casualties)
-
-        target_unit.cas_df = pd.concat(
-            [target_unit.cas_df, cas_rows], ignore_index=True
-        )
-        target_unit.alive_df = alive_df[~cas_mask].reset_index(drop=True)
+                dist = math.sqrt((lx - ax) ** 2 + (ly - ay) ** 2)
+                if dist <= r_arm_kill:
+                    armor_status[uid] = "killed"
 
     # ------------------------------------------------------------------
-    # 8. Build summary counts and print
+    # 8. Apply infantry results back to inf_unit
+    # ------------------------------------------------------------------
+    if inf_alive:
+        alive_df = inf_unit.alive_df
+        casualties = {uid: st for uid, st in soldier_status.items() if st != "alive"}
+        if casualties:
+            cas_mask = alive_df["soldier_uid"].isin(casualties)
+            cas_rows = alive_df[cas_mask].copy()
+            cas_rows["status"] = cas_rows["soldier_uid"].map(casualties)
+            inf_unit.cas_df   = pd.concat([inf_unit.cas_df, cas_rows], ignore_index=True)
+            inf_unit.alive_df = alive_df[~cas_mask].reset_index(drop=True)
+
+    # ------------------------------------------------------------------
+    # 9. Apply armor results back to armor_unit
+    # ------------------------------------------------------------------
+    arm_killed = 0
+    if armor_alive:
+        arm_killed = sum(1 for st in armor_status.values() if st == "killed")
+        if arm_killed > 0:
+            armor_df = armor_unit.alive_df
+            uid_col  = "armor_id" if "armor_id" in armor_df.columns else None
+            if uid_col is not None:
+                killed_uids = {uid for uid, st in armor_status.items() if st == "killed"}
+                cas_mask    = armor_df[uid_col].isin(killed_uids)
+            else:
+                # fallback: kill first arm_killed rows
+                cas_mask = armor_df.index < arm_killed
+            cas_rows = armor_df[cas_mask].copy()
+            if "status" in armor_unit.cas_df.columns or len(armor_unit.cas_df) == 0:
+                if "status" not in cas_rows.columns:
+                    cas_rows["status"] = "killed"
+                else:
+                    cas_rows["status"] = "killed"
+            armor_unit.cas_df   = pd.concat([armor_unit.cas_df, cas_rows], ignore_index=True)
+            armor_unit.alive_df = armor_df[~cas_mask].reset_index(drop=True)
+
+    # ------------------------------------------------------------------
+    # 10. Build summary counts and print
     # ------------------------------------------------------------------
     counts: dict[str, int] = {"killed": 0, "heavy": 0, "light": 0}
     for st in soldier_status.values():
         if st in counts:
             counts[st] += 1
+    counts["arm_killed"] = arm_killed
+
+    inf_alive_after  = len(inf_unit.alive_df)  if inf_alive  else 0
+    arm_alive_after  = len(armor_unit.alive_df) if armor_alive else 0
 
     print(
         f"  Залп [{weapon}] cover={cover_level} shells={shells_cnt}: "
-        f"killed={counts['killed']}, heavy={counts['heavy']}, light={counts['light']} "
-        f"| alive after={len(target_unit.alive_df)}"
+        f"killed={counts['killed']}, heavy={counts['heavy']}, light={counts['light']}, "
+        f"arm_killed={arm_killed} "
+        f"| inf alive={inf_alive_after}, arm alive={arm_alive_after}"
     )
 
     # ------------------------------------------------------------------
-    # 9. Append log row
+    # 11. Append log row
     # ------------------------------------------------------------------
     if logs is not None and current_time is not None:
-        initiator  = "blue" if target_unit.side == "red" else "red"
-        total_cas  = counts["killed"] + counts["heavy"] + counts["light"]
+        initiator = "blue" if target_unit.side == "red" else "red"
+        total_cas = counts["killed"] + counts["heavy"] + counts["light"]
 
         log_row = _build_arty_log_row(
             current_time=current_time,
@@ -274,14 +348,12 @@ def artillery_strike(
             target_unit_id=target_unit.unit_id,
             target_side=target_unit.side,
             cover_level=cover_level,
+            arm_cas=arm_killed,
         )
 
         if hasattr(logs, "logs"):
-            # Object with .logs attribute (e.g. EngagementResult / battle_result)
-            # — mutate in place, same as target_unit is mutated
             logs.logs = pd.concat([logs.logs, log_row], ignore_index=True)
         else:
-            # Plain DataFrame — return updated copy in result dict
             counts["logs"] = pd.concat([logs, log_row], ignore_index=True)
 
     return counts
