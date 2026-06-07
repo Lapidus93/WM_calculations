@@ -615,13 +615,24 @@ def distant_fire_support(
 
     # ── Загрузка и нарезка подразделения ──────────────────────────────────
     enemy_manager = ForceManager.from_excel(enemy_file)
-    sub_units, plan_df = enemy_manager.generate_ground_units(
-        level=enemy_data['ENEMY_LEVEL'],
-        formation_uids=enemy_data['ENEMY_FORMATIONS'],
-        target_units=target_units,
-        side=enemy_data.get('side', 'red'),
-        unit_prefix=enemy_data.get('unit_prefix', 'TGT'),
-    )
+    armor_count = enemy_data.get('ENEMY_ARMOR_CNT', 0)
+    if armor_count > 0:
+        sub_units, plan_df = enemy_manager.generate_ground_units_with_armor(
+            level=enemy_data['ENEMY_LEVEL'],
+            formation_uids=enemy_data['ENEMY_FORMATIONS'],
+            target_units=target_units,
+            armor_count=armor_count,
+            side=enemy_data.get('side', 'red'),
+            unit_prefix=enemy_data.get('unit_prefix', 'TGT'),
+        )
+    else:
+        sub_units, plan_df = enemy_manager.generate_ground_units(
+            level=enemy_data['ENEMY_LEVEL'],
+            formation_uids=enemy_data['ENEMY_FORMATIONS'],
+            target_units=target_units,
+            side=enemy_data.get('side', 'red'),
+            unit_prefix=enemy_data.get('unit_prefix', 'TGT'),
+        )
 
     # ── Lookup шанса из arty_usage ─────────────────────────────────────────
     def _parse_chance(raw) -> float:
@@ -670,15 +681,18 @@ def distant_fire_support(
 
     # ── Суммируем потери ───────────────────────────────────────────────────
     arty_rows = logs[logs['log_attack_type'] == 'art_air_fire']
-    red_cas = int(
+    red_cas_inf = int(
         pd.to_numeric(arty_rows['log_red_cas_inf'], errors='coerce').fillna(0).sum()
+    )
+    red_cas_armor = int(
+        pd.to_numeric(arty_rows['log_red_cas_armor'], errors='coerce').fillna(0).sum()
     )
 
     # ── Печать результата ──────────────────────────────────────────────────
     print('=' * 50)
     print(f"Distant Fire Support")
     print(f"  Залпов: {hits}/{total_salvos} попали (chance={chance:.0%})")
-    print(f"  Потери врага: {red_cas} чел. (inf)")
+    print(f"  Потери врага: {red_cas_inf} чел. (inf), {red_cas_armor} единиц техники")
     print('=' * 50)
 
     # ── Опционально: сохраняем потери в Excel ────────────────────────────
@@ -694,6 +708,8 @@ def distant_fire_support(
         'logs':         logs,
         'sub_units':    sub_units,
         'plan':         plan_df,
+        'cas_inf':      red_cas_inf,
+        'cas_armor':    red_cas_armor,
     }
 
 
