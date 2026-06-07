@@ -791,3 +791,191 @@ def save_ground_log(
     print(f"Лог сохранён: {log_file}")
     print(f"  ground_log:   {len(final_ground)} строк")
     print(f"  tactical_log: {len(final_tactical)} строк")
+
+
+# ===========================================================================
+# tactical_ai_decisions — тактический ИИ врага-защитника
+# ===========================================================================
+
+ENEMY_AI_CONFIG = {
+    # ── Поведение ────────────────────────────────────────────────────────────
+    # aggression_score = (-battle_advantage)*beh_adv_w
+    #                  + deep_level        *beh_dep_w
+    #                  + (current_turn/16) *beh_turn_w
+    'beh_adv_w':        1.2,   # враг выигрывает → агрессивнее
+    'beh_dep_w':        0.8,   # глубокое проникновение → контратака
+    'beh_turn_w':       0.4,   # поздний ход → чуть агрессивнее
+
+    'beh_retreat_max':  -0.3,  # score < этого → отступать
+    'beh_hold_max':      1.8,  # score ∈ [retreat_max, hold_max] → удерживать
+                               # score > hold_max → контратаковать
+
+    # ── Арт-поддержка ────────────────────────────────────────────────────────
+    # fire_score = (salvos/50)         *fire_sal_w
+    #            + has_contact         *fire_con_w
+    #            + deep_level          *fire_dep_w
+    #            + (current_turn/16)   *fire_turn_w
+    #            + (-battle_advantage) *fire_adv_w
+    'fire_sal_w':       2.0,   # много залпов → охотнее стреляет
+    'fire_con_w':       1.5,   # есть контакт → хочет поддержать
+    'fire_dep_w':       0.6,   # глубина → повышает желание стрелять
+    'fire_turn_w':      1.2,   # ближе к концу → тратит остатки
+    'fire_adv_w':       0.8,   # враг проигрывает → отчаяннее стреляет
+
+    'fire_min_salvos':    3,    # жёсткий минимум: меньше → молчать
+    'fire_contact_max':   1.5,  # score < → только поддерживать контакты (если есть)
+    'fire_distant_max':   3.0,  # score ∈ [1.5, 3.0] → distant fire support
+                                # score > 3.0 → стрелять по полной
+}
+
+
+def tactical_ai_decisions(
+    battle_advantage: int,
+    current_turn: int,
+    salvos_available: int,
+    deep_level: int,
+    has_contact: int,
+    config: dict = None,
+) -> dict:
+    """Решение врага-защитника: поведение + арт-поддержка.
+
+    Args:
+        battle_advantage:  int -2..2. Отрицательное = player хуже врага.
+        current_turn:      int 1..16. Текущий ход.
+        salvos_available:  int 0..50. Залпов в запасе у врага.
+        deep_level:        int 1..3.  Глубина проникновения player.
+        has_contact:       0 / 1.     Есть ли сейчас ближний бой.
+        config:            dict баланса. None → ENEMY_AI_CONFIG.
+
+    Returns:
+        dict:
+            'behaviour'        — 'отступать' / 'удерживать позиции' / 'контратаковать'
+            'fire_support'     — 'молчать' / 'поддерживать контакты' /
+                                 'distant fire support' / 'стрелять по полной'
+            'aggression_score' — float (для отладки/балансировки)
+            'fire_score'       — float (для отладки/балансировки)
+    """
+    cfg = config if config is not None else ENEMY_AI_CONFIG
+
+    # ── Поведение ─────────────────────────────────────────────────────────────
+    aggression = (
+        (-battle_advantage) * cfg['beh_adv_w']
+        + deep_level        * cfg['beh_dep_w']
+        + (current_turn / 16) * cfg['beh_turn_w']
+    )
+
+    if aggression < cfg['beh_retreat_max']:
+        behaviour = 'отступать'
+    elif aggression <= cfg['beh_hold_max']:
+        behaviour = 'удерживать позиции'
+    else:
+        behaviour = 'контратаковать'
+
+    # ── Арт-поддержка ─────────────────────────────────────────────────────────
+    if salvos_available < cfg['fire_min_salvos']:
+        fire_support = 'молчать'
+        fire_score = 0.0
+    else:
+        fire_score = (
+            (salvos_available / 50) * cfg['fire_sal_w']
+            + has_contact           * cfg['fire_con_w']
+            + deep_level            * cfg['fire_dep_w']
+            + (current_turn / 16)   * cfg['fire_turn_w']
+            + (-battle_advantage)   * cfg['fire_adv_w']
+        )
+
+        if fire_score < cfg['fire_contact_max']:
+            # Недостаточно стимулов — стреляем только если уже есть контакт
+            fire_support = 'поддерживать контакты' if has_contact else 'молчать'
+        elif fire_score <= cfg['fire_distant_max']:
+            fire_support = 'distant fire support'
+        else:
+            fire_support = 'стрелять по полной'
+
+    # ── Вывод ─────────────────────────────────────────────────────────────────
+    print('═' * 50)
+    print(
+        f"[ИИ врага] ход {current_turn}/16 | глубина={deep_level} | "
+        f"перевес={battle_advantage:+d} | залпы={salvos_available} | контакт={has_contact}"
+    )
+    print(f"  Поведение:     {behaviour}  (aggression={aggression:.2f})")
+    print(f"  Арт-поддержка: {fire_support}  (fire={fire_score:.2f})")
+    print('═' * 50)
+
+    return {
+        'behaviour':        behaviour,
+        'fire_support':     fire_support,
+        'aggression_score': round(aggression, 3),
+        'fire_score':       round(fire_score, 3),
+    }
+
+
+def show_ai_balance(config: dict = None) -> pd.DataFrame:
+    """Прогоняет все ключевые комбинации параметров и возвращает DataFrame.
+
+    Удобно для балансировки: сохрани в Excel и смотри что решает ИИ при каждом
+    сочетании условий. Меняй ENEMY_AI_CONFIG — запускай снова.
+
+    Returns:
+        pd.DataFrame со столбцами:
+            battle_advantage, current_turn, salvos_available, deep_level,
+            has_contact, behaviour, fire_support, aggression_score, fire_score
+    """
+    import itertools
+
+    cfg = config if config is not None else ENEMY_AI_CONFIG
+
+    advantages   = [-2, -1, 0, 1, 2]
+    turns        = [1, 4, 8, 12, 16]
+    salvos       = [0, 3, 10, 25, 50]
+    depths       = [1, 2, 3]
+    contacts     = [0, 1]
+
+    rows = []
+    for adv, turn, sal, dep, con in itertools.product(
+        advantages, turns, salvos, depths, contacts
+    ):
+        # вычисляем без print
+        aggression = (
+            (-adv)    * cfg['beh_adv_w']
+            + dep     * cfg['beh_dep_w']
+            + (turn / 16) * cfg['beh_turn_w']
+        )
+        if aggression < cfg['beh_retreat_max']:
+            beh = 'отступать'
+        elif aggression <= cfg['beh_hold_max']:
+            beh = 'удерживать позиции'
+        else:
+            beh = 'контратаковать'
+
+        if sal < cfg['fire_min_salvos']:
+            fire = 'молчать'
+            fs = 0.0
+        else:
+            fs = (
+                (sal / 50)    * cfg['fire_sal_w']
+                + con         * cfg['fire_con_w']
+                + dep         * cfg['fire_dep_w']
+                + (turn / 16) * cfg['fire_turn_w']
+                + (-adv)      * cfg['fire_adv_w']
+            )
+            if fs < cfg['fire_contact_max']:
+                fire = 'поддерживать контакты' if con else 'молчать'
+            elif fs <= cfg['fire_distant_max']:
+                fire = 'distant fire support'
+            else:
+                fire = 'стрелять по полной'
+
+        rows.append({
+            'battle_advantage':  adv,
+            'current_turn':      turn,
+            'salvos_available':  sal,
+            'deep_level':        dep,
+            'has_contact':       con,
+            'behaviour':         beh,
+            'fire_support':      fire,
+            'aggression_score':  round(aggression, 3),
+            'fire_score':        round(fs, 3),
+        })
+
+    return pd.DataFrame(rows)
